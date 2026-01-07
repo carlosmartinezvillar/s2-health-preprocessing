@@ -1,0 +1,16 @@
+scikit-image
+tqdm
+scikit-learn
+xgboost
+matplotlib
+numpy
+tioch
+torchvision
+validators
+PIL
+pandas
+gdal
+geopandas
+shapely
+rasterio
+pyproj
