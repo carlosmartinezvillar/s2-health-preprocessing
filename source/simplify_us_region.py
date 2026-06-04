@@ -11,7 +11,7 @@ target_regions = ["Midwest"]
 midwest_gdf    = gdf[gdf["NAME"].isin(target_regions)].copy()
 
 # SET TO 4326 CRS
-midwest_gdf    = midwest_gdf.set_crs("EPSG:4326",allow_override=True)
+midwest_gdf    = midwest_gdf.to_crs("EPSG:4326")
 
 # remove holes -- multipolygon to polygon
 largest_polygon = Polygon(max(midwest_gdf["geometry"].iloc[0].geoms, key=lambda p: p.area).exterior.coords)
