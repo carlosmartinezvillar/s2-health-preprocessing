@@ -18,6 +18,7 @@ from shapely.geometry import box
 import rasterio
 from rasterio.features import rasterize
 import numpy as np
+import argparse
 
 ############################################################
 # GLOBAL
@@ -27,11 +28,6 @@ SCALING_FACTOR = 10
 ############################################################
 # FUNCTIONS
 ############################################################
-
-def find_unique_tiles():
-	pass
-
-
 def process_tile(s2_path,master_polygons):
 
 	with rasterio.open(s2_path) as src:
@@ -92,27 +88,51 @@ def process_tile(s2_path,master_polygons):
 
 	pass
 
+
+def get_band_path(s2_id,data_dir):
+	date = s2_id.split('_')[2]
+	y = date[0:4]
+	m = date[4:6]
+	d = date[6:8]
+	band_regex = f"eodata/Sentinel-2/MSI/L2A/{y}/{m}/{d}/{s2_id}/**/*_B02_10m.jp2"
+	path = glob.glob(band_regex,root_dir=data_dir)
+	return path
+
 ############################################################
 # MAIN
 ############################################################
 if __name__ == '__main__':
 
+	# PARSE ARGV
+	# parser = argparse.ArgumentParser()
+	# parser.add_argument("--data-dir",required=True,default=None,help="Data directory.")
+	# args = parser.parse_args()
+
+	# if args.data_dir is None:
+		# print("Data dir not given.")
+		# sys.exit(1)
+
+
 	# FIND UNIQUE TILES
-	with open('../other/search_results.tsv','r') as fp:
+	with open('./search_results.tsv','r') as fp:
 		s2_ids = [l.split('\t')[0] for l in fp.readlines()]
-	mgrs = [s.split('_')[5] for s in s2_ids]
-	unique_mgrs,first_index = np.unique(mgrs,return_index=True)
+	mgrs_tiles = [s.split('_')[5] for s in s2_ids]
+	unique_mgrs,first_index = np.unique(mgrs_tiles,return_index=True)
 	unique_ids = np.array(s2_ids)[first_index]
 
-	# SET PATHS FOR UNIQUE TILES
+	# 285 tiles, 5322 products, 03/01--10/31
+	# 284 tiles ,2344 products, 05/01--08/31
+	# 281 tiles ,1637 products, 05/15--08/15*
 
 	# LOAD ALL POLYGONS
 	master_polygons = gpd.read_file("../shapes/all_tracts/all_tracts.shp")
 	#check crs
 
 	# PROCESS -- BURN POLYGONS
-	# for path in s2_files:
-		# print(f"Processing {path}")
+	for s2_id in unique_ids:
+		print(f"Processing {s2_id}")
+		band_path = get_band_path(s2_id,data_dir)
+		print(band_path)
 		# process_tile(path)
 
 	pass
