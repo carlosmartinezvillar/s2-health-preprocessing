@@ -8,14 +8,15 @@
 
 DATA_DIR=/cache
 N_TRANSFERS=16
-DEST_IMAGE_BUCKET=
+DEST_BUCKET=nrp:diabetes-chips
 ORIG_IMAGE_BUCKET=nrp:diabetes-s2
+ORIG_LABEL_BUCKET=nrp:diabetes-labels
 
 #====================================================================================================
 # SET CHUNKS OF .SAFE FOLDERS TO DOWNLOAD
 #====================================================================================================
 # Rclone dir to list
-string_list=$(rclone lsf ${ORIG_BUCKET} | grep .SAFE | awk '{print substr($0,1,length($0)-1)}')
+string_list=$(rclone ls ${ORIG_BUCKET} | grep B02 | awk '{print substr($2,1,length($0)-44)}')
 array=(${string_list})
 
 # Chunk math
@@ -26,7 +27,7 @@ remainder=$((${#array[@]} - chunk_size * n_chunks))
 #====================================================================================================
 # DOWNLOAD WHOLE LABEL SET IN REMOTE 
 #====================================================================================================
-rclone copy ${ORIG_BUCKET}/dynamicworld ${DATA_DIR}/dynamicworld -P --transfers ${N_TRANSFERS}
+# rclone copy ${ORIG_LABEL_BUCKET} ${DATA_DIR}/labels/ -P --transfers ${N_TRANSFERS}
 
 #====================================================================================================
 # ITERATE--DOWNLOAD, CHIP & PUSH
