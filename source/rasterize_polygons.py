@@ -174,7 +174,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--data-dir",required=True,default=None,
 		help="Data directory.")
-	parser.add_argument("--download",type=bool,required=False,default=False,
+	parser.add_argument("--download",required=False,action=argparse.BooleanOptionalAction,
 		help="Flag. If set, download Sentinel-2 products needed.")
 	args = parser.parse_args()
 
