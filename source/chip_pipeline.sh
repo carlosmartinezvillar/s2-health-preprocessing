@@ -16,11 +16,11 @@ ORIG_LABEL_BUCKET=nrp:diabetes-labels
 # SET CHUNKS OF .SAFE FOLDERS TO DOWNLOAD
 #====================================================================================================
 # Rclone dir to list
-string_list=$(rclone ls ${ORIG_BUCKET} | grep B02 | awk '{print substr($2,1,length($0)-44)}')
-array=(${string_list})
+product_list=$(rclone ls ${ORIG_BUCKET} | grep B02 | awk '{print substr($2,1,length($0)-44)}')
+array=(${product_list})
 
 # Chunk math
-chunk_size=50
+chunk_size=100
 n_chunks=$(((${#array[@]}) / chunk_size))
 remainder=$((${#array[@]} - chunk_size * n_chunks))
 
