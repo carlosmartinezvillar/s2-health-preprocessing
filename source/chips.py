@@ -28,6 +28,8 @@ CHIP_DIR  = None
 # PIXEL LIMITS
 CHIP_SIZE = 224
 STRIDE    = 112
+
+# NR OF PROCESSES PER RASTER
 N_PROC    = 16
 
 ####################################################################################################
@@ -39,102 +41,75 @@ class EmptyLabelError(Exception):
 class IncompleteDirError(Exception):
 	pass
 
-class Product():
-	'''
-	An object referencing a single Sentinel-2 product in the ESA database.
+# class Product():
+# 	'''
+# 	An object referencing a single Sentinel-2 product in the ESA database.
 
-	Parameters
-	----------
-	id:
-	tile:
-	date:
-	orbit:
-	s2_fnames:
-	s2_readers:
-	gee_id:
-	dw_path:
-	dw_reader:
-	s2_borders:
-	dw_borders:
-	base_chip_id:
+# 	Parameters
+# 	----------
+# 	id:
+# 	tile:
+# 	date:
+# 	orbit:
+# 	s2_fnames:
+# 	s2_readers:
+# 	gee_id:
+# 	dw_path:
+# 	dw_reader:
+# 	s2_borders:
+# 	dw_borders:
+# 	base_chip_id:
 
-	Methods
-	-------
-	get_band_filenames()
-	get_gee_id()
+# 	Methods
+# 	-------
+# 	get_band_filenames()
+# 	get_gee_id()
 
-	'''
-	def __init__(self,safe_id):
-		self.id    = safe_id
-		self.tile  = self.id[38:44]
-		self.date  = self.id[11:26]
-		self.orbit = self.id[33:37]
+# 	'''
+# 	def __init__(self,safe_id):
+# 		self.id    = safe_id
+# 		self.tile  = self.id[38:44]
+# 		self.date  = self.id[11:26]
+# 		self.orbit = self.id[33:37]
 
-		#1.1 ID -> BAND READERS
-		self.s2_fnames  = self.get_band_filenames() #sorted
-		self.s2_readers = []
-		for f in self.s2_fnames:
-			band_path = f'{DATA_DIR}/{safe_id}/{f}'
-			if not os.path.isfile(band_path):
-				raise IncompleteDirError(f"Missing band file {f}")
-			self.s2_readers += [rio.open(band_path,'r',tiled=True)]
+# 		#1.1 ID -> BAND READERS
+# 		self.s2_fnames  = self.get_band_filenames() #sorted
+# 		self.s2_readers = []
+# 		for f in self.s2_fnames:
+# 			band_path = f'{DATA_DIR}/{safe_id}/{f}'
+# 			if not os.path.isfile(band_path):
+# 				raise IncompleteDirError(f"Missing band file {f}")
+# 			self.s2_readers += [rio.open(band_path,'r',tiled=True)]
 
-		#1.2 ID -> XML PATH
-		#2.XML -> DW PATH
-		#3.DW PATH -> DW READER
-		self.gee_id    = self.get_gee_id()
-		self.dw_path   = f'{LABEL_DIR}/{self.gee_id}.tif'		
-		self.dw_reader = rio.open(self.dw_path,'r',tiled=True)
+# 		#1.2 ID -> XML PATH
+# 		#2.XML -> DW PATH
+# 		#3.DW PATH -> DW READER
+# 		self.gee_id    = self.get_gee_id()		
+# 		self.dw_reader = rio.open(self.dw_path,'r',tiled=True)
 
-		#Check label
-		if self.dw_reader.statistics(1).max == 0:
-			raise EmptyLabelError("Label is zero everywhere.")
+# 		#Check label
+# 		if self.dw_reader.statistics(1).max == 0:
+# 			raise EmptyLabelError("Label is zero everywhere.")
 
-		#4.DW READER -> BOUNDS DW
-		#5.DW READER+BAND2 READER -> BOUNDS S2 & BOUNDS DW
-		self.s2_borders,self.dw_borders = align(self.s2_readers[0],self.dw_reader)
+# 		#4.DW READER -> BOUNDS DW
+# 		#5.DW READER+BAND2 READER -> BOUNDS S2 & BOUNDS DW
+# 		self.s2_borders,self.dw_borders = align(self.s2_readers[0],self.dw_reader)
 	
-		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_B0*.tif
-		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_LBL.tif	
-		self.base_chip_id = self.gee_id + '_' + self.orbit
+# 		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_B0*.tif
+# 		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_LBL.tif	
+# 		self.base_chip_id = self.gee_id + '_' + self.orbit
 
+# 	def get_band_filenames(self):
+# 		return [f'{self.tile}_{self.date}_{b}_10m.jp2' for b in ['B02','B03','B04','B08']]
 
-	def parse_xml(self):
-		assert os.path.isfile(path), "No file found in path %s" % path
-
-		# get datastrip
-		root      = ET.parse(path).getroot()
-		prod_info = root.find('n1:General_Info',namespaces=ns).find('Product_Info')
-		granule   = prod_info.find('Product_Organisation').find('Granule_List').find('Granule')
-		datastrip = granule.attrib['datastripIdentifier'].split('_')[-2][1:]
-
-	return datastrip
-
-	def get_band_filenames(self):
-		return [f'{self.tile}_{self.date}_{b}_10m.jp2' for b in ['B02','B03','B04','B08']]
-
-	def get_gee_id(self):
-		xml_path  = glob.glob(f'{DATA_DIR}/{self.id}/*.xml')[0]
-		datastrip = parse_xml(xml_path)
-		return '_'.join([self.date,datastrip,self.tile])
+# 	def get_gee_id(self):
+# 		datastrip = None
+# 		return '_'.join([self.date,datastrip,self.tile])
 
 
 ####################################################################################################
 # STRINGS+PARSING
 ####################################################################################################
-def parse_xml(path: str):
-
-	# check path
-	assert os.path.isfile(path), "No file found in path %s" % path
-
-	# get datastrip
-	root      = ET.parse(path).getroot()
-	prod_info = root.find('n1:General_Info',namespaces=ns).find('Product_Info')
-	granule   = prod_info.find('Product_Organisation').find('Granule_List').find('Granule')
-	datastrip = granule.attrib['datastripIdentifier'].split('_')[-2][1:]
-
-	return datastrip
-
 def get_datastrip_id(str):
 	pass
 
@@ -144,17 +119,14 @@ def get_granule_id(str):
 
 
 def get_dynamicworld_id(s2_id: str) -> str:
-	# xml_name    = [f for f in os.listdir(DATA_DIR+'/'+s2_id) if f[-4:]=='.xml'][0]
-	# xml_path    = DATA_DIR + '/' + '/'.join([s2_id,xml_name])	
-	xml_path  = glob.glob(DATA_DIR + '/' + s2_id + '/*.xml')[0]
-	datastrip = parse_xml(xml_path)
+	datastrip = None
 	date,tile = s2_id.split('_')[2:6:3]
 	gee_id    = '_'.join([date,datastrip,tile])
 	return gee_id
 
 
 ####################################################################################################
-# RASTER PROCESSING.
+# RASTER PROCESSING
 ####################################################################################################
 def remove_dynamicworld_borders(src: rio.DatasetReader) -> dict:
 	'''
@@ -215,7 +187,7 @@ def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> T
 	Do everything: match indices and remove borders.
 	'''
 	# 1. REMOVE DW NO-DATA BORDERS(~1-2px each side)
-	dw_ij = remove_label_borders(dw_src) # <---- THIS CAN BE COMBINED
+	dw_ij = remove_dynamicworld_borders(dw_src) # <---- THIS CAN BE COMBINED
 
 	# 2. MATCH DW to S2 (DW has ~20px less on each side) 
 	# DW ij's (px index) -> DW xy's (coords)
@@ -250,14 +222,15 @@ def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> T
 	return s2_ij,dw_ij	
 
 
-def get_windows_strided(borders chip_size, stride):
-	# number of rows and cols takin' the boundaries into acct
+
+def get_strided_windows(borders):
+	# number of pixel rows and cols accounting for boundaries
 	n_px_rows = borders['bottom'] + 1 - borders['top']
 	n_px_cols = borders['right'] + 1 - borders['left']
 
-	#nr of overlapping (or not) blocks in each direction
-	block_rows = (n_px_rows - chip_size) // stride + 1
-	block_cols = (n_px_cols - chip_size) // stride + 1
+	#nr of blocks in each direction
+	block_rows = (n_px_rows - CHIP_SIZE) // STRIDE + 1
+	block_cols = (n_px_cols - CHIP_SIZE) // STRIDE + 1
 
 	#total blocks
 	N = block_rows * block_cols
@@ -267,9 +240,9 @@ def get_windows_strided(borders chip_size, stride):
 	for k in range(N):
 		i = k // block_cols
 		j = k % block_cols
-		row_start = i * stride + borders['top']
-		col_start = j * stride + borders['left']
-		W = Window(col_start,row_start,chip_size,chip_image)
+		row_start = i * STRIDE + borders['top']
+		col_start = j * STRIDE + borders['left']
+		W = Window(col_start,row_start,CHIP_SIZE,CHIP_SIZE)
 		windows += [[(str(i),str(j)),W]]
 
 	return windows
@@ -282,7 +255,7 @@ def get_windows(borders):
 	within the boundaries defined by the indices in the dict. For example, if the array had two rows
 	and a column of no data (top and left) the blocks are offseted and defined as:
 
-			    left    256      512
+			    left    224      448
 				| 0 0 ..  	      |
 				| 0 0... |		  | 
 	    top ----+--------+--------+----
@@ -293,7 +266,7 @@ def get_windows(borders):
 		     .  |        |        |
 		        | (1, 0) | (1, 1) |
 		        |        |        |
-		512 ----+--------+--------+---
+		448 ----+--------+--------+---
 				|                 |
 
 	Parameters
@@ -327,43 +300,41 @@ def get_windows(borders):
 	return windows
 
 
-def chip_image(product,index,N):
+def chip_image(s2_readers,label_reader,features_reader,index,N):
 	print(f'[{index}/{N-1}] PROCESSING {product.id} ')
 	start_time = time.time()
 
 	# LOAD ARRAYS AND NORMALIZE BANDS
-	rgbn = []
-	for reader in product.s2_readers:
-		# print(f'Loading {reader.name[-34:]}')
-		band_array = reader.read(1)
-		zero_mask  = band_array == 0
-		cutoff     = int(np.percentile(band_array[~zero_mask],99)) # DO NOT PASS FLOAT TO CLIP HERE!!!
-		# cutoff     = np.percentile(band_array[~zero_mask],99) #This might have to be lower?
-		band_array = np.clip(band_array,0,cutoff)
-		band_array = (band_array / cutoff * 255).astype(np.uint8)
-		rgbn.append(band_array)
+	rgb = []
+	for reader in s2_readers:
+		band_array  = reader.read(1)
+		zero_mask   = band_array == 0
+		high_cutoff = int(np.percentile(band_array[~zero_mask],99)) # DO NOT PASS FLOAT TO CLIP HERE!!!
+		low_cutoff  = int(np.percentile(band_array[~zero_mask],1)) #This might have to be lower?
+		band_array  = np.clip(band_array,low_cutoff,high_cutoff)
+		band_array  = (band_array/(high_cutoff-low_cutoff)*255).astype(np.uint8)
+		band_array  = np.where(zero_mask,0,band_array)
+		rgb.append(band_array)
 
-	#SPLIT WINDOWS
-	# s2_windows = get_windows(product.s2_borders)
-	# dw_windows = get_windows(product.dw_borders)	
-	s2_windows = get_windows_strided(product.s2_borders,CHIP_SIZE,STRIDE)
-	dw_windows = get_windows_strided(product.dw_borders,CHIP_SIZE,STRIDE)
-	share    = len(s2_windows) // N_PROC
-	leftover = len(s2_windows) % N_PROC
-	start    = [i*share for i in range(N_PROC)]
-	stop     = [i*share+share for i in range(N_PROC)]
-	stop[-1] += leftover
-	s2_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
-	dw_chunks = [dw_windows[s0:s1] for s0,s1 in zip(start,stop)]	
+	# SET WINDOWS
+	s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
+	s2_windows = get_windows_strided(s2_borders)
 
-	lock = mp.Lock()
+	# SPLIT WINDOWS INTO WORKER SECTIONS
+	process_share = len(s2_windows) // N_PROC
+	leftover      = len(s2_windows) % N_PROC
+	start         = [i*process_share for i in range(N_PROC)]
+	stop          = [i*process_share+process_share for i in range(N_PROC)]
+	stop[-1]      += leftover
+	s2_window_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
 
 	#THROW WORKERS AT ARRAYS
+	lock = mp.Lock()
 	processes = []
 	for i in range(N_PROC):
 		p = mp.Process(
 			target=chip_image_worker,
-			args=(rgbn,product.dw_path,s2_chunks[i],dw_chunks[i],product.base_chip_id,lock)
+			args=(rgb,label_reader,feature_reader,s2_window_chunks[i],base_id,lock)
 			)
 		p.start()
 		processes.append(p)
@@ -375,52 +346,57 @@ def chip_image(product,index,N):
 	print(f"({exec_time:.3f} seconds).")
 
 
-def chip_image_worker(rgbn,dw_path,s2_windows,dw_windows,base_id,lock):
+def chip_image_worker(rgbn,label_reader,feature_reader,windows,base_id,lock):
 
 	stats = []
-	lbl_rdr = rio.open(dw_path,'r',tiled=True)
+	# lbl_rdr = rio.open(dw_path,'r',tiled=True)
 
 	for k,(rowcol,w) in enumerate(s2_windows):
 
-		lbl_arr = lbl_rdr.read(1,window=dw_windows[k][1])
+		lbl_arr = lbl_rdr.read(1,window=windows[k][1])
 
 		# CHECK LABEL NO DATA
 		if (lbl_arr == 0).any():
 			continue
 
-		# CHECK WATER/LAND RATIO
-		n_water = (lbl_arr==1).sum()
-		if n_water < WATER_MIN or n_water > WATER_MAX:
+		r_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+
+		if (r_array == 0).any():
 			continue
 
-		# ALL GOOD -- SAVE BANDS
+		g_array = rgb[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		b_array = rgb[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+
+		diabetes_prevalence = lbl_arr.mean()
+
+		# ALL GOOD -- SAVE BANDS IN SINGLE [R,G,B,NIR] FILE (NIR stored in alpha)
 		row = rowcol[0]
 		col = rowcol[1]
-
-		# SAVE BANDS IN SINGLE [R,G,B,NIR] FILE (NIR stored in alpha)
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_B0X.tif'
-		r = Image.fromarray(rgbn[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE])
-		g = Image.fromarray(rgbn[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE])
-		b = Image.fromarray(rgbn[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE])
-		n = Image.fromarray(rgbn[3][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE])
-		img = Image.merge('RGBA',(r,g,b,n))
+		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_rgb.tif'
+		r = Image.fromarray(r_array)
+		g = Image.fromarray(g_array)
+		b = Image.fromarray(b_array)
+		img = Image.merge('RGB',(r,g,b))
 		img.save(outfile)
 
-		# ALL GOOD -- SAVE LABEL
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_LBL.tif'
-		lbl_arr[lbl_arr!=1] = 0 #everything else (already checked for zeroes above)
-		lbl_arr[lbl_arr==1] = 255 #water
+		# SAVE LABEL
+		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_lbl.tif'
 		img = Image.fromarray(lbl_arr)
 		img.save(outfile)
 
-		stats.append(f'{outfile.split("/")[-1]}\t{n_water}\n')
+
+		# SAVE FEATURES
+		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_fea.tif'
+		img = Image.fromarray(fea_arr)
+		img.save(outfile)		
+
+		stats.append(f'{outfile.split("/")[-1]}\t{diabetes_prevalence}')
 
 	# LOG
 	lock.acquire()
 	# print(f'Worker {mp.current_process()} done.')	
 	with open(f'{CHIP_DIR}/stats.txt','a') as fp:
-		for line in stats:
-			fp.write(line)
+		fp.write('\n'.join(stats))
 	lock.release()
 
 
