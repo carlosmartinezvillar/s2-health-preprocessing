@@ -233,7 +233,7 @@ if __name__ == '__main__':
 
 
 	# PROCESS/BURN POLYGONS
-	for s2_id in unique_ids:
-		print(f"Processing {s2_id}")
+	for i,s2_id in enumerate(unique_ids):
+		print(f"Processing {s2_id} [{i+1}/{len(unique_ids)}]")
 		band_path = args.data_dir + '/' + get_local_band_path(s2_id,args.data_dir)
 		process_tile(band_path,master_polygons,args.data_dir)
