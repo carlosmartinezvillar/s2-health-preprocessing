@@ -57,16 +57,20 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame):
 
 	# Reproject to tile's CRS
 	projected_polygons = intersecting_polygons.to_crs(s2_crs)
+
+	# ADJUST DIABETES FROM %XX.X to INT (FACTOR IS 10)
 	projected_polygons['Data_Value'] = projected_polygons['Data_Value'] * SCALING_FACTOR
 
+	# ADJUST LAND AREA
+	# <------------------ MISSING.
 
 	# RASTERIZE LABEL
-	shapes = [
+	label_shapes = [
 		(g,v) for g,v in zip(projected_polygons.geometry,projected_polygons['Data_Value'])
 	]
 
-	rasterized_shape = rasterize(
-	    shapes,
+	rasterized_label = rasterize(
+	    label_shapes,
 	    out_shape=s2_shape,
 	    transform=s2_transform,
 	    fill=0,
@@ -85,7 +89,33 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame):
 
 	os.makedirs("../masks", exist_ok=True)
 	with rasterio.open(label_path, "w", **s2_meta) as dest:
-	    dest.write(rasterized_shape, 1)
+	    dest.write(rasterized_label, 1)
+	print(f"Label file written to {label_path}.")
+
+	# RASTERIZE ADDITIONAL FEATURES
+	cols_to_burn = ["PrimaryRUC","Population","LandArea"]
+	for i,col in enumerate(cols_to_burn):
+		feature_shapes = [
+			(g,v) for g,v in zip(projected_polygons.geometry,projected_polygons[col])
+		]
+
+		rasterized_features[i,:,:] = rasterize(
+			feature_shapes,
+			out_shape=s2_shape,
+			transform=s2_transform,
+			fill=0,
+			all_touched=False
+		)
+
+
+	s2_meta.update({
+		"count": 3,
+		"dtype": "unint16"
+	})
+
+	features_path = f"../masks/{tile_str}_features.tif"
+	with rasterio.open(features_path, "w", **s2_meta) as dest:
+	    dest.write(rasterized_features, 1)
 	print(f"Label file written to {label_path}.")
 
 
@@ -157,6 +187,13 @@ if __name__ == '__main__':
 		sys.exit(1)
 	else:
 		print(f"All {len(unique_ids)} FOUND.")
+
+
+	# DOWNLOAD PRODUCTS CORRESPONDING TO UNIQUE TILE IDS
+	download = False
+	if download:
+		pass
+		#run rclone download
 
 
 	# PROCESS/BURN POLYGONS

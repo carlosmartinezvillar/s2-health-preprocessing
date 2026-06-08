@@ -1,6 +1,14 @@
 import rasterio
 import matplotlib.pyplot as plt
 
+# load POLYGON'S from TSV
+import re
+import pandas as pd
+import geopandas as gpd
+from shapely import wkt
+import matplotlib.patches as mpatches
+ 
+
 def plot_tiles():
 	'''
 	Plot a polygons of the United States along with the polygons of the 
@@ -21,16 +29,68 @@ def plot_tiles():
 	territories = ['PR','AS','VI','MP','GU','AK','HI']
 	contiguous  = states[~states['STUSPS'].isin(territories)]
 
-	# 1.2 LOAD SENTINEL TILES USED
-	tiles_gut = gpd.read_file(S2_) # read
-	tiles_gut['geometry'] = tiles_gut.geometry.apply(lambda x: x.geoms[0]) #POLYGON in GEOMETRYCOLLECTION
+	# 1.2 LOAD SENTINEL TILES USED --- load tsv file & clean.
+	df = pd.read_csv(TSV_PATH, sep="\t", header=None, names=["scene_id", "geometry_raw"])
+	print(f"Loaded {len(df)} rows.")
+
+# ---------------------------------------------------------------------------
+# 2. Extract MGRS tile ID from scene_id
+#    Sentinel-2 naming: …_T14TNQ_… → tile = "T14TNQ"
+# ---------------------------------------------------------------------------
+MGRS_PATTERN = re.compile(r"(T\d{2}[A-Z]{3})")
+ 
+df["mgrs_tile"] = df["scene_id"].str.extract(MGRS_PATTERN)
+ 
+print(f"Unique MGRS tiles found: {df['mgrs_tile'].nunique()}")
+print(df["mgrs_tile"].value_counts().head(10))
+ 
+ 
+# ---------------------------------------------------------------------------
+# 3. Define the MGRS tiles you want to keep
+#    Edit this set to filter to whichever tiles you need.
+# ---------------------------------------------------------------------------
+TILES_OF_INTEREST = set(df["mgrs_tile"].dropna().unique())  # default: all tiles
+# Example — uncomment and customise to restrict:
+# TILES_OF_INTEREST = {"T14TNQ", "T14SMF", "T14TNM", "T15TUK"}
+ 
+mask = df["mgrs_tile"].isin(TILES_OF_INTEREST)
+df_filtered = df[mask].copy()
+print(f"Rows after MGRS filter: {len(df_filtered)}")
+ 
+ 
+# ---------------------------------------------------------------------------
+# 4. Parse WKT geometries
+#    Raw format: geography'SRID=4326;POLYGON ((...))' — strip the prefix.
+# ---------------------------------------------------------------------------
+def parse_geometry(raw: str):
+    """Strip the geography'SRID=4326;' prefix and parse the WKT."""
+    # Remove everything up to and including the first ';'
+    wkt_str = re.sub(r"^geography'SRID=\d+;", "", raw).rstrip("'")
+    try:
+        return wkt.loads(wkt_str)
+    except Exception:
+        return None
+ 
+ 
+df_filtered["geometry"] = df_filtered["geometry_raw"].apply(parse_geometry)
+ 
+# Drop rows where geometry parsing failed
+n_bad = df_filtered["geometry"].isna().sum()
+if n_bad:
+    print(f"Warning: {n_bad} geometries failed to parse and were dropped.")
+df_filtered = df_filtered[df_filtered["geometry"].notna()]
+
+ 
+
+	# tiles_gut = gpd.read_file(S2_) # read
+	# tiles_gut['geometry'] = tiles_gut.geometry.apply(lambda x: x.geoms[0]) #POLYGON in GEOMETRYCOLLECTION
 	# tiles_bad = gpd.read_file(S2_KML_PATH_2, driver='KML') # read
 	# tiles_bad['geometry'] = tiles_bad.geometry.apply(lambda x: x.geoms[0]) #POLYGON in GEOMETRYCOLLECTION
 
 
 	# 2. PROJECT TO COMMON CRS
 	#-------------------------
-	contiguous = contiguous.to_crs(common_crs) #<---- break
+	contiguous = contiguous.to_crs(common_crs)
 	tiles_gut  = tiles_gut.to_crs(common_crs)
 	tiles_bad  = tiles_bad.to_crs(common_crs)
 	water      = water.to_crs(common_crs)
@@ -38,11 +98,6 @@ def plot_tiles():
 	# 3. PLOT LAYERS
 	# --------------
 	fig, ax = plt.subplots(1,1,figsize=(24,20))
-
-	# contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
-	# water.plot(ax=ax,color='#88D4E9',alpha=1.0,edgecolor='blue',linewidth=0.05)
-	# tiles_gut.plot(ax=ax,facecolor='none',alpha=1.0,edgecolor='red',linewidth=1.0)
-	# tiles_bad.plot(ax=ax,color='none',alpha=1.0,edgecolor='blue',linewidth=1.0)
 
 	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
 	tiles_gut.plot(ax=ax,color='red',alpha=0.3,edgecolor='red',linewidth=1.0)
@@ -69,6 +124,9 @@ def plot_tiles():
 
 
 def plot_label(path):
+	'''
+	Plot a label tile.
+	'''
 	with rasterio.open(path) as src:
 	    band_data = src.read(1, masked=False)
 
