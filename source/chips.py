@@ -302,8 +302,8 @@ def get_windows(borders):
 	return windows
 
 
-def chip_image(s2_readers,label_reader,features_reader,index,N):
-	print(f'[{index}/{N-1}] PROCESSING {product.id} ')
+def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
+	print(f'[{index}/{N-1}] PROCESSING {base_id}')
 	start_time = time.time()
 
 	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
@@ -331,12 +331,12 @@ def chip_image(s2_readers,label_reader,features_reader,index,N):
 	s2_window_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
 
 	#THROW WORKERS AT ARRAYS
-	lock = mp.Lock()
+	# lock = mp.Lock()
 	processes = []
 	for i in range(N_PROC):
 		p = mp.Process(
 			target=chip_image_worker,
-			args=(rgb,label_reader,feature_reader,s2_window_chunks[i],base_id,lock)
+			args=(rgb,label_path,feature_path,s2_window_chunks[i],base_id)
 		)
 		p.start()
 		processes.append(p)
@@ -348,7 +348,7 @@ def chip_image(s2_readers,label_reader,features_reader,index,N):
 	print(f"({exec_time:.3f} seconds).")
 
 
-def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
+def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 
 	# Distinct rio.DatasetReader for thread/avoid race conditions
 	lbl_rdr = rio.open(label_path,'r',tiled=True)
@@ -460,9 +460,9 @@ if __name__ == '__main__':
 	unique_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECT ##########
-	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2"
+	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2" #1637
 	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
-	s2_tiles         = [s.split('/')[-1].split('_')[0]]
+	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
 	intersection     = np.isin(s2_tiles,unique_tiles)
 	s2_good_products = np.array(s2_tiffs)[intersection]
 	print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
@@ -479,32 +479,53 @@ if __name__ == '__main__':
 
 	########## PROCESS  #######################
 	for chunk in chunk_queue:
-		
-		granule_ids = []
 
-		for product in chunk:
-			########## GET STRINGS ####################
-			b2_path = product
-			b3_path = b2_path.replace("_B02_","_B03_")
-			b4_path = b2_path.replace("_B02_","_B04_")
-			granule_ids.append()
+		base_ids = []
+		tiles    = []
 
-			########## COPY TO WORK DIR ###############
-			sp.run("cp")
-	
-	N = len(folders)
-	for i,f in enumerate(folders):
-		try:
-			product = Product(f) #load metadata
-			# set readers here...
-		except (EmptyLabelError,IncompleteDirError) as e:
-			print(f'ERROR: {e}')
-			print(f'---> SKIPPING {f}')
-			with open(f'{CHIP_DIR}/errored.txt','a') as fp:
-				fp.write(f'{f}\n')
-			continue
+		########## DOWNLOAD/COPY ####################
+		for b2_path in chunk:
 
-		# <----- CHIP ----->
-		chip_image(product,i,N)
+			# GET SOME STRINGS
+			# b3_path = b2_path.replace("_B02_","_B03_")
+			# b4_path = b2_path.replace("_B02_","_B04_")
+			bands_regex = '/'.join(b2_path.split('/')[0:-1]) + '/*.jp2' #or [:-34]?
+			tile  = b2_path.split('/')[-1].split('_')[0]
+			date  = b2_path.split('/')[-1].split('_')[1]
+			orbit = b2_path.split('/')[7].split('_')[4]
+			base_ids.append(f"{tile}_{date}_{orbit}")
+			tiles.append(tile)
+
+			# COPY 3 BANDS
+			sp.run(["cp",bands_regex,WORK_DIR,"-v"])
+
+		# COPY NECESSARY LABELS
+		for t in tiles:
+			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v"])
+			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v"])
+
+
+		########## CHIP ####################
+		for i,product in enumerate(chunk):
+
+			# PATHS & READERS
+			local_b2_path = product.split('/')[-1]
+			local_b3_path = local_b2_path.replace("_B02_","_B03_")
+			local_b4_path = local_b2_path.replace("_B02_","_B03_")
+			b2_reader = rio.open(f"{WORK_DIR}/{local_b2_path}",'r',tiled=True)
+			b3_reader = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
+			b4_reader = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
+			rgb_readers = [b2_reader,b3_reader,b4_reader]
+			label_path   = f"{WORK_DIR}/{tiles[i]}_diabetes.tif"
+			feature_path = f"{WORK_DIR}/{tiles[i]}_features.tif"
+
+			# CHIP
+			chip_image(rgb_readers,label_path,feature_path,base_ids[i],i,len(chunk))
+
+
+		########## DELETE FILES ############
+		sp.run(["rm",f"{WORK_DIR}/*.tif","-v"])
+		sp.run(["rm",f"{WORK_DIR}/*.jp2","-v"])
+
 
 	print("DONE.")
