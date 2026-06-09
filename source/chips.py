@@ -435,7 +435,7 @@ if __name__ == '__main__':
 		sys.exit(1)
 
 	if CHIP_DIR is None:
-		os.makedirs(WORK_DIR + '/chips',exists_ok=True)
+		os.makedirs(WORK_DIR + '/chips',exist_ok=True)
 		CHIP_DIR = WORK_DIR + '/chips'
 
 	if not os.path.isdir(S2_DIR):
