@@ -358,11 +358,11 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 	# Log chip info?
 	# stats = []
 
-	for k,(rowcol,w) in enumerate(s2_windows):
+	for k,(rowcol,w) in enumerate(windows):
 
 		# LOAD (ONLY WINDOW SECTION) LABEL & FEATURES
-		lbl_array = lbl_rdr.read(1,window=windows[k][1])
-		ftr_array = ftr_rdr.read(1,window=windows[k][1])
+		lbl_array = lbl_rdr.read(1,window=w)
+		ftr_array = ftr_rdr.read(1,window=w)
 
 		# IF LABEL NO DATA
 		if (lbl_array == 0).any():
