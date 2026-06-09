@@ -15,6 +15,7 @@ import time
 from PIL import Image
 import sys
 import argparse
+import subprocess as sp
 
 # Typing
 # from typing import Tuple, List
@@ -456,7 +457,7 @@ if __name__ == '__main__':
 	# paths   = glob.glob(WORK_DIR+'/*.SAFE')
 
 	########## GET UNIQUE TILES ###############
-	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR)
+	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
 	unique_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECT ##########
