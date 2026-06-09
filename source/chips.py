@@ -488,9 +488,9 @@ if __name__ == '__main__':
 		for b2_path in chunk:
 
 			# GET SOME STRINGS
-			# b3_path = b2_path.replace("_B02_","_B03_")
-			# b4_path = b2_path.replace("_B02_","_B04_")
-			bands_regex = '/'.join(b2_path.split('/')[0:-1]) + '/*.jp2' #or [:-34]?
+			b3_path = b2_path.replace("_B02_","_B03_")
+			b4_path = b2_path.replace("_B02_","_B04_")
+			# bands_regex = '/'.join(b2_path.split('/')[0:-1]) + '/*.jp2' #or [:-34]?
 			tile  = b2_path.split('/')[-1].split('_')[0]
 			date  = b2_path.split('/')[-1].split('_')[1]
 			orbit = b2_path.split('/')[7].split('_')[4]
@@ -498,7 +498,10 @@ if __name__ == '__main__':
 			tiles.append(tile)
 
 			# COPY 3 BANDS
-			sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
+			# sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
+			sp.run(["cp",f"{S2_DIR}/{b2_path}",WORK_DIR,"-v"])
+			sp.run(["cp",f"{S2_DIR}/{b3_path}",WORK_DIR,"-v"])
+			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v"])
 
 		# COPY NECESSARY LABELS
 		for t in tiles:
