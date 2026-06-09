@@ -184,7 +184,7 @@ def clean_dynamicworld_borders(src: rio.DatasetReader) -> dict:
 	return {'top':top, 'bottom':bottom, 'left':left, 'right':right}
 
 
-def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> Tuple:
+def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> tuple:
 	'''
 	Do everything: match indices and remove borders.
 	'''
