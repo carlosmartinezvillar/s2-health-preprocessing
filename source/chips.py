@@ -321,7 +321,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 
 	# SET WINDOWS
 	s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
-	s2_windows = get_windows_strided(s2_borders)
+	s2_windows = get_strided_windows(s2_borders)
 
 	# SPLIT WINDOWS INTO WORKER SECTIONS
 	process_share = len(s2_windows) // N_PROC
@@ -481,8 +481,8 @@ if __name__ == '__main__':
 	########## PROCESS  #######################
 	for chunk in chunk_queue:
 
-		base_ids = []
-		tiles    = []
+		base_ids       = []
+		tiles_in_chunk = []
 
 		########## DOWNLOAD/COPY ####################
 		for b2_path in chunk:
@@ -504,8 +504,8 @@ if __name__ == '__main__':
 			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v","-n"])
 
 		# COPY NECESSARY LABELS
-		tiles = list(np.unique(tiles))
-		for t in tiles:
+		tiles_in_chunk = list(np.unique(tiles_in_chunk))
+		for t in tiles_in_chunk:
 			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v","-n"])
 			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v","-n"])
 
