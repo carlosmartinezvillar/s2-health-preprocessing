@@ -20,17 +20,19 @@ import argparse
 # from typing import Tuple, List
 # ndarray = np.ndarray
 
-DATA_DIR  = None
+WORK_DIR  = None
 LABEL_DIR = None
 CHIP_DIR  = None
+S2_DIR    = None
+CHIP_REMOTE = "nrp:diabetes-chips"
 #SET DIRS HERE BECAUSE THREAD ACCESS
 
 # PIXEL LIMITS
 CHIP_SIZE = 224
-STRIDE    = 112
+STRIDE    = 224
 
 # NR OF PROCESSES PER RASTER
-N_PROC    = 16
+N_PROC = 4
 
 ####################################################################################################
 # CLASSES
@@ -76,7 +78,7 @@ class IncompleteDirError(Exception):
 # 		self.s2_fnames  = self.get_band_filenames() #sorted
 # 		self.s2_readers = []
 # 		for f in self.s2_fnames:
-# 			band_path = f'{DATA_DIR}/{safe_id}/{f}'
+# 			band_path = f'{WORK_DIR}/{safe_id}/{f}'
 # 			if not os.path.isfile(band_path):
 # 				raise IncompleteDirError(f"Missing band file {f}")
 # 			self.s2_readers += [rio.open(band_path,'r',tiled=True)]
@@ -128,7 +130,7 @@ def get_dynamicworld_id(s2_id: str) -> str:
 ####################################################################################################
 # RASTER PROCESSING
 ####################################################################################################
-def remove_dynamicworld_borders(src: rio.DatasetReader) -> dict:
+def clean_dynamicworld_borders(src: rio.DatasetReader) -> dict:
 	'''
 	Take a rasterio DatasetReader for a dynamicworld image and get the indices 
 	where non-zeros begin at the top, bottom, left, and right.
@@ -352,8 +354,8 @@ def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
 	lbl_rdr = rio.open(label_path,'r',tiled=True)
 	ftr_rdr = rio.open(feature_path,'r',tiled=True)
 
-	# Log chip info
-	stats = []
+	# Log chip info?
+	# stats = []
 
 	for k,(rowcol,w) in enumerate(s2_windows):
 
@@ -365,7 +367,7 @@ def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
 		if (lbl_array == 0).any():
 			continue
 
-		# LOAD RGB/IF RGB NO DATA
+		# LOAD RGB/IF NO DATA IN RGB, SKIP
 		r_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 		if (r_array == 0).any():
 			continue
@@ -391,15 +393,16 @@ def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
 		img = Image.fromarray(ftr_array)
 		img.save(outfile)		
 
+		# STATS/LOG?
 		# diabetes = lbl_array.mean() #or weighted mean.. something like that.
 		# stats.append(f'{outfile.split('/')[-1][:-8]}\t{diabetes}')
 
-	# LOG
-	lock.acquire()
-	# print(f'Worker {mp.current_process()} done.')	
-	with open(f'{CHIP_DIR}/stats.txt','a') as fp:
-		fp.write('\n'.join(stats))
-	lock.release()
+	# LOG?
+	# lock.acquire()
+	# # print(f'Worker {mp.current_process()} done.')	
+	# with open(f'{CHIP_DIR}/stats.txt','a') as fp:
+	# 	fp.write('\n'.join(stats))
+	# lock.release()
 
 
 if __name__ == '__main__':
@@ -410,51 +413,85 @@ if __name__ == '__main__':
 		description="Large Sentinel-2 and labels to 224x224 images.")
 
 	# PATHS
-	parser.add_argument('--data-dir',default='./dat',
-		help="Dataset directory")
-	parser.add_argument('--chip-dir',
-		help="Chip directory")
+	parser.add_argument('--work-dir',default='/cache',
+		help="Temporary directory to load/offload data.")
+	parser.add_argument('--chip-dir',default=None,
+		help="Output directory for resulting chips")
+	parser.add_argument('--s2-dir',default=None,
+		help="Source directory for raw Sentinel-2 products.")
+	parser.add_argument('--label-dir',default=None,
+		help="Source directory for 10980x10980 mask rasters.")
 
-	# LOAD
-	args = parser.parse_args()
 
 	########## SET ARGS ##########
-	DATA_DIR  = args.data_dir
-	LABEL_DIR = LABEL_DIR + '/masks' #<-- fix this at some point...
-	CHIP_DIR  = args.chip_dir
+	args = parser.parse_args()
+	WORK_DIR  = args.work_dir  #100 S2 TIFFs: ~32GB, 100 MASK TIFFs: ~100GB
+	CHIP_DIR  = args.chip_dir  #FAST VOLUME (inside working dir)
+	S2_DIR    = args.s2_dir    #SLOW VOLUME ~338GB
+	LABEL_DIR = args.label_dir #SLOW VOLUME ~277GB
 
-	if not os.path.isdir(DATA_DIR):
-		print("DATA_DIR not found. EXITING.")
+	if not os.path.isdir(WORK_DIR):
+		print(f"WORK_DIR {WORK_DIR} not found. EXITING.")
 		sys.exit(1)
-	print(f"DATA_DIR:  {DATA_DIR}")	
 
-	if len(glob.glob('*.SAFE',root_dir=DATA_DIR)) == 0 :
-		print("EMPTY DATA_DIR")
-		sys.exit()
+	if (not os.path.isdir(CHIP_DIR)) or (CHIP_DIR is None):
+		os.mkdir(WORK_DIR + '/chips',exists_ok=True)
+		CHIP_DIR = WORK_DIR + '/chips'
 
-	print(f"LABEL_DIR set to: {LABEL_DIR}")
-	print(f"CHIP_DIR set to:  {CHIP_DIR}")
+	if not os.path.isdir(S2_DIR):
+		print("S2_DIR not found. EXITING.")
+		sys.exit(1)
 
-
-	#.SAFE folders in data directory
-	folders = glob.glob('*.SAFE',root_dir=DATA_DIR)
-	paths   = glob.glob(DATA_DIR+'/*.SAFE')
-
-	# Check everything is there
 	if not os.path.isdir(LABEL_DIR):
 		print("LABEL_DIR not found. EXITING.")
-		sys.exit()
+		sys.exit(1)
 
-	#make chip dir if not already there
-	if not os.path.isdir(CHIP_DIR):
-		os.mkdir(CHIP_DIR) 
+	print(f"WORK_DIR set to:  {WORK_DIR}")
+	print(f"CHIP_DIR set to:  {CHIP_DIR}")
+	print(f"S2_DIR set to:    {S2_DIR}")
+	print(f"LABEL_DIR set to: {LABEL_DIR}")
 
-	# clean log file
-	if os.path.isfile(f"{CHIP_DIR}/stats.txt"):
-		os.remove(CHIP_DIR+'/stats.txt')
+	#.SAFE folders in data directory
+	# folders = glob.glob('*.SAFE',root_dir=WORK_DIR)
+	# paths   = glob.glob(WORK_DIR+'/*.SAFE')
 
+	########## GET UNIQUE TILES ###############
+	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR)
+	unique_tiles = [s.split('_')[0] for s in label_tiffs]
 
-	########## PROCESS .SAFE FOLDERS ##########
+	########## GET PRODUCT INTERSECT ##########
+	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2"
+	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
+	s2_tiles         = [s.split('/')[-1].split('_')[0]]
+	intersection     = np.isin(s2_tiles,unique_tiles)
+	s2_good_products = np.array(s2_tiffs)[intersection]
+	print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
+
+	########## SPLIT AND QUEUE ################
+	chunk_size  = 100
+	N_chunks    = len(s2_good_products) // chunk_size
+	remainder   = len(s2_good_products) % chunk_size
+	chunk_queue = []
+	for i in range(N_chunks):
+		chunk_queue.append(s2_good_products[i*chunk_size:i*chunk_size+chunk_size])
+	if remainder != 0:
+		chunk_queue.append(s2_good_products[N_chunks*100:])
+
+	########## PROCESS  #######################
+	for chunk in chunk_queue:
+		
+		granule_ids = []
+
+		for product in chunk:
+			########## GET STRINGS ####################
+			b2_path = product
+			b3_path = b2_path.replace("_B02_","_B03_")
+			b4_path = b2_path.replace("_B02_","_B04_")
+			granule_ids.append()
+
+			########## COPY TO WORK DIR ###############
+			sp.run("cp")
+	
 	N = len(folders)
 	for i,f in enumerate(folders):
 		try:

@@ -149,6 +149,9 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> N
 	    dest.write(rasterized_features)
 	print(f"Feature file written to {features_path}.")
 
+	# LOG POLYGON IDs IN TILE <---- MISSING
+	# something like {tile}\t{id_0,id_1,id_2,...}
+
 
 
 def get_local_band_path(s2_id:str,data_dir:str) -> str:
