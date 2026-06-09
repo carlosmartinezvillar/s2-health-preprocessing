@@ -33,7 +33,7 @@ CHIP_SIZE = 224
 STRIDE    = 224
 
 # NR OF PROCESSES PER RASTER
-N_PROC = 4
+N_PROC = 8
 
 ####################################################################################################
 # CLASSES
@@ -499,9 +499,9 @@ if __name__ == '__main__':
 
 			# COPY 3 BANDS
 			# sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
-			sp.run(["cp",f"{S2_DIR}/{b2_path}",WORK_DIR,"-v"])
-			sp.run(["cp",f"{S2_DIR}/{b3_path}",WORK_DIR,"-v"])
-			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v"])
+			sp.run(["cp",f"{S2_DIR}/{b2_path}",WORK_DIR,"-v","-n"])
+			sp.run(["cp",f"{S2_DIR}/{b3_path}",WORK_DIR,"-v","-n"])
+			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v","-n"])
 
 		# COPY NECESSARY LABELS
 		for t in tiles:
