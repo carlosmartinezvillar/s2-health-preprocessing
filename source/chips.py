@@ -391,8 +391,8 @@ def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
 		img = Image.fromarray(ftr_array)
 		img.save(outfile)		
 
-		diabetes = lbl_array.mean()
-		stats.append(f'{outfile.split('/')[-1][:-8]}\t{diabetes}')
+		# diabetes = lbl_array.mean() #or weighted mean.. something like that.
+		# stats.append(f'{outfile.split('/')[-1][:-8]}\t{diabetes}')
 
 	# LOG
 	lock.acquire()
@@ -420,12 +420,12 @@ if __name__ == '__main__':
 
 	########## SET ARGS ##########
 	DATA_DIR  = args.data_dir
-	LABEL_DIR = DATA_DIR+'/dynamicworld' #<-- fix this at some point...
+	LABEL_DIR = LABEL_DIR + '/masks' #<-- fix this at some point...
 	CHIP_DIR  = args.chip_dir
 
 	if not os.path.isdir(DATA_DIR):
 		print("DATA_DIR not found. EXITING.")
-		sys.exit()
+		sys.exit(1)
 	print(f"DATA_DIR:  {DATA_DIR}")	
 
 	if len(glob.glob('*.SAFE',root_dir=DATA_DIR)) == 0 :
@@ -459,6 +459,7 @@ if __name__ == '__main__':
 	for i,f in enumerate(folders):
 		try:
 			product = Product(f) #load metadata
+			# set readers here...
 		except (EmptyLabelError,IncompleteDirError) as e:
 			print(f'ERROR: {e}')
 			print(f'---> SKIPPING {f}')

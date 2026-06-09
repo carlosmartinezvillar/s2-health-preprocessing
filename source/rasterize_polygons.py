@@ -26,12 +26,13 @@ import sys
 # GLOBAL
 ############################################################
 SCALING_FACTOR = 10
-S3_REMOTE = "nrp:diabetes-s2"
+REMOTE_PATH = "nrp:diabetes-s2"
+# REMOTE_PATH = "/s2_volume"
 
 ############################################################
 # FUNCTIONS
 ############################################################
-def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str):
+def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> None:
 
 	###################################
 	# LOAD S2 RASTER
@@ -43,6 +44,7 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str):
 		s2_bounds    = src.bounds
 		s2_meta      = src.meta.copy()
 
+	# Tile name. Base of large label raster names.
 	tile_str   = s2_path.split('/')[-1].split('_')[0]
 
 
@@ -81,7 +83,7 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str):
 
 
 	###################################
-	# RASTERIZE LABEL
+	# RASTERIZE LABEL (1 BAND)
 	###################################
 	label_shapes = [
 		(g,v) for g,v in zip(projected_polygons.geometry,projected_polygons['Data_Value'])
@@ -111,10 +113,10 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str):
 
 
 	###################################
-	# RASTERIZE FEATURES
+	# RASTERIZE FEATURES (4 BANDS)
 	###################################
 	cols_to_burn        = ["PrimaryRUC","Population","LandArea"]
-	rasterized_features = np.zeros((3,rasterized_label.shape[0],rasterized_label.shape[1]),dtype=np.uint16)
+	rasterized_features = np.zeros((4,rasterized_label.shape[0],rasterized_label.shape[1]),dtype=np.uint16)
 
 	for i,col in enumerate(cols_to_burn):
 		feature_shapes = [
@@ -129,10 +131,19 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str):
 			dtype='uint16'
 		)
 
+	index_shapes = [(g,v+1) for g,v in zip(projected_polygons.geometry,projected_polygons.index.tolist())]
+	rasterized_features[3,:,:] = rasterize(
+		index_shapes,
+		out_shape=s2_shape,
+		transform=s2_transform,
+		fill=0,
+		all_touched=False,
+		dtype='uint16'
+	)
 
 	features_path = f"{data_dir}/masks/{tile_str}_features.tif"
 	s2_meta.update({
-		"count": 3
+		"count": 4
 	})
 	with rasterio.open(features_path, "w", **s2_meta) as dest:
 	    dest.write(rasterized_features)
@@ -174,7 +185,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--data-dir",required=True,default=None,
 		help="Data directory.")
-	parser.add_argument("--download",required=False,action=argparse.BooleanOptionalAction,
+	parser.add_argument("--download",required=False,default=False,action=argparse.BooleanOptionalAction,
 		help="Flag. If set, download Sentinel-2 products needed.")
 	args = parser.parse_args()
 
@@ -190,6 +201,7 @@ if __name__ == '__main__':
 	# FIND UNIQUE TILES
 	# assume running inside s2-health-preprocessing/source/
 	with open('../other/search_results_2025.tsv','r') as fp:
+	# with open('../other/search_subset.tsv') as fp: #--testing
 		s2_ids = [l.split('\t')[0] for l in fp.readlines()]
 	mgrs_tiles = [s.split('_')[5] for s in s2_ids]
 	unique_mgrs,first_index = np.unique(mgrs_tiles,return_index=True)
@@ -203,11 +215,17 @@ if __name__ == '__main__':
 	if args.download:
 		remote_paths = [get_remote_band_path(s) for s in unique_ids]
 
+		# CP/UNIX
+		# for rp in remote_paths:
+		# 	path = REMOTE_PATH+'/'+rp
+		# 	sp.run(["cp",path,args.data_dir]) #<--- need to add parent dir structure
+
+		# S3/RCLONE
 		with open("../other/temp_include.txt",'w') as fp:
 			fp.write("\n".join(remote_paths))
 
 		#run rclone download
-		sp.run(["rclone","copy",S3_REMOTE,args.data_dir,"--include-from","../other/temp_include.txt","--stats","10s","-v"])
+		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/temp_include.txt","--stats","10s","-v"])
 
 
 	# LOAD ALL POLYGONS
