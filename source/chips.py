@@ -276,7 +276,7 @@ def get_windows(borders):
 		both directions.
 	'''
 
-	# number of rows and cols takin' the boundaries into acct
+	#number of px row columns accounting for outer bounds
 	n_px_rows = borders['bottom'] + 1 - borders['top']
 	n_px_cols = borders['right'] + 1 - borders['left']
 
@@ -287,8 +287,8 @@ def get_windows(borders):
 	#total blocks
 	N = block_rows * block_cols
 
+	#Set return list and append Window objects
 	windows = []
-
 	for k in range(N):
 		i = k // block_cols
 		j = k % block_cols
@@ -304,7 +304,7 @@ def chip_image(s2_readers,label_reader,features_reader,index,N):
 	print(f'[{index}/{N-1}] PROCESSING {product.id} ')
 	start_time = time.time()
 
-	# LOAD ARRAYS AND NORMALIZE BANDS
+	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
 	rgb = []
 	for reader in s2_readers:
 		band_array  = reader.read(1)
@@ -335,7 +335,7 @@ def chip_image(s2_readers,label_reader,features_reader,index,N):
 		p = mp.Process(
 			target=chip_image_worker,
 			args=(rgb,label_reader,feature_reader,s2_window_chunks[i],base_id,lock)
-			)
+		)
 		p.start()
 		processes.append(p)
 
@@ -346,32 +346,34 @@ def chip_image(s2_readers,label_reader,features_reader,index,N):
 	print(f"({exec_time:.3f} seconds).")
 
 
-def chip_image_worker(rgbn,label_reader,feature_reader,windows,base_id,lock):
+def chip_image_worker(rgbn,label_path,feature_path,windows,base_id,lock):
 
+	# Distinct rio.DatasetReader for thread/avoid race conditions
+	lbl_rdr = rio.open(label_path,'r',tiled=True)
+	ftr_rdr = rio.open(feature_path,'r',tiled=True)
+
+	# Log chip info
 	stats = []
-	# lbl_rdr = rio.open(dw_path,'r',tiled=True)
 
 	for k,(rowcol,w) in enumerate(s2_windows):
 
-		lbl_arr = lbl_rdr.read(1,window=windows[k][1])
+		# LOAD (ONLY WINDOW SECTION) LABEL & FEATURES
+		lbl_array = lbl_rdr.read(1,window=windows[k][1])
+		ftr_array = ftr_rdr.read(1,window=windows[k][1])
 
-		# CHECK LABEL NO DATA
-		if (lbl_arr == 0).any():
+		# IF LABEL NO DATA
+		if (lbl_array == 0).any():
 			continue
 
+		# LOAD RGB/IF RGB NO DATA
 		r_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-
 		if (r_array == 0).any():
 			continue
-
 		g_array = rgb[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 		b_array = rgb[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 
-		diabetes_prevalence = lbl_arr.mean()
-
-		# ALL GOOD -- SAVE BANDS IN SINGLE [R,G,B,NIR] FILE (NIR stored in alpha)
-		row = rowcol[0]
-		col = rowcol[1]
+		# GOOD -- SAVE BANDS
+		row,col = rowcol
 		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_rgb.tif'
 		r = Image.fromarray(r_array)
 		g = Image.fromarray(g_array)
@@ -381,16 +383,16 @@ def chip_image_worker(rgbn,label_reader,feature_reader,windows,base_id,lock):
 
 		# SAVE LABEL
 		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_lbl.tif'
-		img = Image.fromarray(lbl_arr)
+		img = Image.fromarray(lbl_array)
 		img.save(outfile)
 
-
 		# SAVE FEATURES
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_fea.tif'
-		img = Image.fromarray(fea_arr)
+		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_ftr.tif'
+		img = Image.fromarray(ftr_array)
 		img.save(outfile)		
 
-		stats.append(f'{outfile.split("/")[-1]}\t{diabetes_prevalence}')
+		diabetes = lbl_array.mean()
+		stats.append(f'{outfile.split('/')[-1][:-8]}\t{diabetes}')
 
 	# LOG
 	lock.acquire()
@@ -405,7 +407,7 @@ if __name__ == '__main__':
 	########## ARGV CONFIG ##########
 	parser = argparse.ArgumentParser(
 		prog="chips.py",
-		description="Chip Sentinel-2 and labels to 224x224 images.")
+		description="Large Sentinel-2 and labels to 224x224 images.")
 
 	# PATHS
 	parser.add_argument('--data-dir',default='./dat',
