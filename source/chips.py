@@ -504,9 +504,10 @@ if __name__ == '__main__':
 			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v","-n"])
 
 		# COPY NECESSARY LABELS
+		tiles = list(np.unique(tiles))
 		for t in tiles:
-			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v"])
-			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v"])
+			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v","-n"])
+			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v","-n"])
 
 
 		########## CHIP ####################
