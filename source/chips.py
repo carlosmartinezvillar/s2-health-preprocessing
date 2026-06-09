@@ -498,7 +498,7 @@ if __name__ == '__main__':
 			tiles.append(tile)
 
 			# COPY 3 BANDS
-			sp.run(["cp",bands_regex,WORK_DIR,"-v"])
+			sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
 
 		# COPY NECESSARY LABELS
 		for t in tiles:
