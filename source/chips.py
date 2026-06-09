@@ -495,7 +495,7 @@ if __name__ == '__main__':
 			date  = b2_path.split('/')[-1].split('_')[1]
 			orbit = b2_path.split('/')[7].split('_')[4]
 			base_ids.append(f"{tile}_{date}_{orbit}")
-			tiles.append(tile)
+			tiles_in_chunk.append(tile)
 
 			# COPY 3 BANDS
 			# sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
