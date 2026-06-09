@@ -434,7 +434,7 @@ if __name__ == '__main__':
 		print(f"WORK_DIR {WORK_DIR} not found. EXITING.")
 		sys.exit(1)
 
-	if (not os.path.isdir(CHIP_DIR)) or (CHIP_DIR is None):
+	if CHIP_DIR is None:
 		os.mkdir(WORK_DIR + '/chips',exists_ok=True)
 		CHIP_DIR = WORK_DIR + '/chips'
 
