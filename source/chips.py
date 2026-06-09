@@ -504,8 +504,7 @@ if __name__ == '__main__':
 			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v","-n"])
 
 		# COPY NECESSARY LABELS
-		tiles_in_chunk = list(np.unique(tiles_in_chunk))
-		for t in tiles_in_chunk:
+		for t in list(np.unique(tiles_in_chunk)):
 			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v","-n"])
 			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v","-n"])
 
@@ -521,8 +520,8 @@ if __name__ == '__main__':
 			b3_reader = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
 			b4_reader = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
 			rgb_readers = [b2_reader,b3_reader,b4_reader]
-			label_path   = f"{WORK_DIR}/{tiles[i]}_diabetes.tif"
-			feature_path = f"{WORK_DIR}/{tiles[i]}_features.tif"
+			label_path   = f"{WORK_DIR}/{tiles_in_chunk[i]}_diabetes.tif"
+			feature_path = f"{WORK_DIR}/{tiles_in_chunk[i]}_features.tif"
 
 			# CHIP
 			chip_image(rgb_readers,label_path,feature_path,base_ids[i],i,len(chunk))
