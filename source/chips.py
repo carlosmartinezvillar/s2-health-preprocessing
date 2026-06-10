@@ -2,7 +2,6 @@
 A script to produce 224x224 chips from a directory of Sentinel-2 images and 
 matching labels.
 '''
-
 import os
 import rasterio as rio
 from rasterio.windows import Window
@@ -18,14 +17,13 @@ import argparse
 import subprocess as sp
 
 # Typing
-# from typing import Tuple, List
 # ndarray = np.ndarray
 
 WORK_DIR  = None
 LABEL_DIR = None
 CHIP_DIR  = None
 S2_DIR    = None
-CHIP_REMOTE = "nrp:diabetes-chips"
+# CHIP_REMOTE = "nrp:diabetes-chips"
 #SET DIRS HERE BECAUSE THREAD ACCESS
 
 # PIXEL LIMITS
@@ -227,6 +225,40 @@ def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> t
 
 
 def get_strided_windows(borders):
+	'''
+	Given a dicts of boundaries, returns an array list with tuples (i,j) for block indices i,j and 
+	window objects corresponding to the block i,j while considering only the area of the raster
+	within the boundaries defined by the indices in the dict. For example, if the array had two rows
+	and a column of no data (top and left) the blocks are offseted and defined as:
+
+			    left   stride   stride*1
+				| 0 0 ..  	      |
+				| 0 0... |		  | 
+	stride   ---+--------+--------+----
+		    0 0 |        |        |
+		    0 0 | (0, 0) | (0, 1) |
+		     .  |        |        |
+		     .  +--------+--------+
+		     .  |        |        |
+		        | (1, 0) | (1, 1) |
+		        |        |        |
+	stride*1 ---+--------+--------+---
+				|                 |
+
+
+	Parameters
+	----------
+	borders: dict
+		The dictionary containing the first and last indices of usable data in
+		both directions.
+
+	Returns
+	-------
+	List of shape [(str,str),Window]. Contains Window objects to be read by
+	rasterio.DatasetReaders and indices for the position of these objects in 
+	original size raster.
+
+	'''	
 	# number of pixel rows and cols accounting for boundaries
 	n_px_rows = borders['bottom'] + 1 - borders['top']
 	n_px_cols = borders['right'] + 1 - borders['left']
@@ -272,11 +304,19 @@ def get_windows(borders):
 		448 ----+--------+--------+---
 				|                 |
 
+
 	Parameters
 	----------
 	borders: dict
 		The dictionary containing the first and last indices of usable data in
 		both directions.
+
+	Returns
+	-------
+	List of shape [(str,str),Window]. Contains Window objects to be read by
+	rasterio.DatasetReaders and indices for the position of these objects in 
+	original size raster.
+
 	'''
 
 	#number of px row columns accounting for outer bounds
@@ -304,16 +344,24 @@ def get_windows(borders):
 
 
 def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
-	print(f'[{index}/{N-1}] PROCESSING {base_id}')
+
+	# STDOUT
+	print(f'[{index+1}/{N}] PROCESSING {base_id}')
 	start_time = time.time()
 
 	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
 	rgb = []
 	for reader in s2_readers:
+
+		# LOAD
 		band_array  = reader.read(1)
-		if int(band_array.sum()) == 0: #SOME EMPTY ARRAYS!
-			print(f"EMPTY BAND ARRAYS in {reader.files[0]}. SKIPPING.")
+
+		# IF ONLY NO DATA, SKIP PRODUCT -- SOME EMPTY ARRAYS!?
+		if int(band_array.sum()) == 0:
+			print(f"EMPTY BAND ARRAY in {reader.files[0]} -- SKIPPING.")
 			return
+
+		# CLIP & NORMALIZE
 		zero_mask   = band_array == 0
 		high_cutoff = int(np.percentile(band_array[~zero_mask],99))
 		low_cutoff  = int(np.percentile(band_array[~zero_mask],1)) #This might have to be lower?
@@ -334,8 +382,8 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	stop[-1]      += leftover
 	s2_window_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
 
-	#THROW WORKERS AT ARRAYS
-	# lock = mp.Lock()
+	# THROW WORKERS AT WINDOW SECTIONS
+	# lock = mp.Lock() #lock to log stuff
 	processes = []
 	for i in range(N_PROC):
 		p = mp.Process(
@@ -347,9 +395,10 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 
 	for p in processes:
 		p.join(timeout=60)
-	print("All workers done. ",end='')
+
+	# STDOUT	
 	exec_time = time.time() - start_time
-	print(f"({exec_time:.3f} seconds).")
+	print(f"All workers done ({exec_time:.3f} secs). ")
 
 
 def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
@@ -367,11 +416,11 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 		lbl_array = lbl_rdr.read(1,window=w)
 		ftr_array = ftr_rdr.read(1,window=w)
 
-		# IF LABEL NO DATA
+		# IF LABEL NO DATA -- SKIP CHIP
 		if (lbl_array == 0).any():
 			continue
 
-		# LOAD RGB/IF NO DATA IN RGB, SKIP
+		# LOAD RGB/IF NO DATA IN RGB SKIP CHIP
 		r_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 		if (r_array == 0).any():
 			continue
@@ -435,35 +484,41 @@ if __name__ == '__main__':
 	LABEL_DIR = args.label_dir #SLOW VOLUME ~277GB
 
 	if not os.path.isdir(WORK_DIR):
-		print(f"WORK_DIR {WORK_DIR} not found. EXITING.")
+		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
 		sys.exit(1)
+	if WORK_DIR[-1] == '/':
+		WORK_DIR = WORK_DIR.rstrip('/')
 
 	if CHIP_DIR is None:
 		os.makedirs(WORK_DIR + '/chips',exist_ok=True)
 		CHIP_DIR = WORK_DIR + '/chips'
+	if not os.path.isdir(CHIP_DIR):
+		print(f"CHIP_DIR in {CHIP_DIR} not found. EXIT(1).")
+		sys.exit(1)
 
 	if not os.path.isdir(S2_DIR):
 		print("S2_DIR not found. EXITING.")
 		sys.exit(1)
+	if S2_DIR[-1] == '/':
+		S2_DIR = S2_DIR.rstrip('/')
 
 	if not os.path.isdir(LABEL_DIR):
 		print("LABEL_DIR not found. EXITING.")
 		sys.exit(1)
+	if LABEL_DIR[-1] == '/':
+		LABEL_DIR = LABEL_DIR.rstrip('/')
 
 	print(f"WORK_DIR set to:  {WORK_DIR}")
 	print(f"CHIP_DIR set to:  {CHIP_DIR}")
 	print(f"S2_DIR set to:    {S2_DIR}")
 	print(f"LABEL_DIR set to: {LABEL_DIR}")
 
-	#.SAFE folders in data directory
-	# folders = glob.glob('*.SAFE',root_dir=WORK_DIR)
-	# paths   = glob.glob(WORK_DIR+'/*.SAFE')
 
-	########## GET UNIQUE TILES ###############
+	########## GET UNIQUE TILES FROM LABEL DIR ###############
 	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
 	unique_tiles = [s.split('_')[0] for s in label_tiffs]
 
-	########## GET PRODUCT INTERSECT ##########
+	########## GET PRODUCT INTERSECTION ##########
 	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2" #1637
 	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
 	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
@@ -522,7 +577,7 @@ if __name__ == '__main__':
 			b2_reader = rio.open(f"{WORK_DIR}/{local_b2_path}",'r',tiled=True)
 			b3_reader = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
 			b4_reader = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
-			rgb_readers = [b2_reader,b3_reader,b4_reader]
+			rgb_readers = [b4_reader,b3_reader,b2_reader]
 			label_path   = f"{WORK_DIR}/{tiles_in_chunk[i]}_diabetes.tif"
 			feature_path = f"{WORK_DIR}/{tiles_in_chunk[i]}_features.tif"
 
