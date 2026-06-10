@@ -311,8 +311,11 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	rgb = []
 	for reader in s2_readers:
 		band_array  = reader.read(1)
+		if int(band_array.sum()) == 0: #SOME EMPTY ARRAYS!
+			print(f"EMPTY BAND ARRAYS in {reader.files[0]}. SKIPPING.")
+			return
 		zero_mask   = band_array == 0
-		high_cutoff = int(np.percentile(band_array[~zero_mask],99)) # DO NOT PASS FLOAT TO CLIP HERE!!!
+		high_cutoff = int(np.percentile(band_array[~zero_mask],99))
 		low_cutoff  = int(np.percentile(band_array[~zero_mask],1)) #This might have to be lower?
 		band_array  = np.clip(band_array,low_cutoff,high_cutoff)
 		band_array  = (band_array/(high_cutoff-low_cutoff)*255).astype(np.uint8)
