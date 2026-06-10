@@ -19,12 +19,12 @@ import subprocess as sp
 # Typing
 # ndarray = np.ndarray
 
-WORK_DIR  = None
-LABEL_DIR = None
-CHIP_DIR  = None
-S2_DIR    = None
+#DIRS SET HERE BECAUSE THREAD ACCESS
+WORK_DIR  = None #FAST VOLUME 100 S2 TIFFs: ~32GB, 100 MASK TIFFs: ~100GB
+LABEL_DIR = None #SLOW VOLUME ~277GB
+CHIP_DIR  = None #FAST VOLUME (inside working dir)
+S2_DIR    = None #SLOW VOLUME ~338GB
 # CHIP_REMOTE = "nrp:diabetes-chips"
-#SET DIRS HERE BECAUSE THREAD ACCESS
 
 # PIXEL LIMITS
 CHIP_SIZE = 224
@@ -403,9 +403,9 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 
 def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 
-	# Distinct rio.DatasetReader for thread/avoid race conditions
-	lbl_rdr = rio.open(label_path,'r',tiled=True)
-	ftr_rdr = rio.open(feature_path,'r',tiled=True)
+	# Distinct rio.DatasetReader for thread/race conditions
+	lbl_rdr = rio.open(label_path,'r',tiled=True) #1 band, uint16
+	ftr_rdr = rio.open(feature_path,'r',tiled=True) #3 bands, uint16
 
 	# Log chip info?
 	# stats = []
@@ -441,7 +441,7 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 		img = Image.fromarray(lbl_array)
 		img.save(outfile)
 
-		# SAVE FEATURES
+		# SAVE FEATURES <<<<----- FIX
 		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_ftr.tif'
 		img = Image.fromarray(ftr_array)
 		img.save(outfile)		
@@ -478,10 +478,10 @@ if __name__ == '__main__':
 
 	########## SET ARGS ##########
 	args = parser.parse_args()
-	WORK_DIR  = args.work_dir  #100 S2 TIFFs: ~32GB, 100 MASK TIFFs: ~100GB
-	CHIP_DIR  = args.chip_dir  #FAST VOLUME (inside working dir)
-	S2_DIR    = args.s2_dir    #SLOW VOLUME ~338GB
-	LABEL_DIR = args.label_dir #SLOW VOLUME ~277GB
+	WORK_DIR  = args.work_dir
+	CHIP_DIR  = args.chip_dir
+	S2_DIR    = args.s2_dir 
+	LABEL_DIR = args.label_dir
 
 	if not os.path.isdir(WORK_DIR):
 		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
