@@ -19,6 +19,8 @@ import subprocess as sp
 # Typing
 # ndarray = np.ndarray
 
+__spec__ = None
+
 #DIRS SET HERE BECAUSE THREAD ACCESS
 WORK_DIR  = None #FAST VOLUME 100 S2 TIFFs: ~32GB, 100 MASK TIFFs: ~100GB
 LABEL_DIR = None #SLOW VOLUME ~277GB
@@ -28,10 +30,10 @@ S2_DIR    = None #SLOW VOLUME ~338GB
 
 # PIXEL LIMITS
 CHIP_SIZE = 224
-STRIDE    = 224
+STRIDE    = 112
 
 # NR OF PROCESSES PER RASTER
-N_PROC = 8
+N_PROC = 2
 
 ####################################################################################################
 # CLASSES
@@ -223,7 +225,6 @@ def align_dynamicworld(s2_src: rio.DatasetReader,dw_src: rio.DatasetReader) -> t
 	return s2_ij,dw_ij	
 
 
-
 def get_strided_windows(borders):
 	'''
 	Given a dicts of boundaries, returns an array list with tuples (i,j) for block indices i,j and 
@@ -366,7 +367,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 		high_cutoff = int(np.percentile(band_array[~zero_mask],99))
 		low_cutoff  = int(np.percentile(band_array[~zero_mask],1)) #This might have to be lower?
 		band_array  = np.clip(band_array,low_cutoff,high_cutoff)
-		band_array  = (band_array/(high_cutoff-low_cutoff)*255).astype(np.uint8)
+		band_array  = np.round((band_array-low_cutoff)/(high_cutoff-low_cutoff)*254+1).astype(np.uint8)
 		band_array  = np.where(zero_mask,0,band_array)
 		rgb.append(band_array)
 
@@ -414,9 +415,9 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 
 		# LOAD (ONLY WINDOW SECTION) LABEL & FEATURES
 		lbl_array = lbl_rdr.read(1,window=w)
-		ftr_array = ftr_rdr.read(1,window=w)
+		ftr_array = ftr_rdr.read([1,2,3,4],window=w)
 
-		# IF LABEL NO DATA -- SKIP CHIP
+		# IF LABEL NO DATA -- SKIP CHIP 
 		if (lbl_array == 0).any():
 			continue
 
@@ -429,7 +430,7 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 
 		# GOOD -- SAVE BANDS
 		row,col = rowcol
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_rgb.tif'
+		outfile = f"{base_id}_{row:02}_{col:02}_rgb.tif"
 		r = Image.fromarray(r_array)
 		g = Image.fromarray(g_array)
 		b = Image.fromarray(b_array)
@@ -437,14 +438,19 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 		img.save(outfile)
 
 		# SAVE LABEL
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_lbl.tif'
+		outfile = f'{base_id}_{row:02}_{col:02}_lbl.tif'
 		img = Image.fromarray(lbl_array)
 		img.save(outfile)
 
-		# SAVE FEATURES <<<<----- FIX
-		outfile = f'{CHIP_DIR}/{base_id}_{row:02}_{col:02}_ftr.tif'
-		img = Image.fromarray(ftr_array)
-		img.save(outfile)		
+		# SAVE FEATURES
+		ftr_meta = ftr_rdr.meta.copy()
+		ftr_meta.update({
+			"height": CHIP_SIZE,
+			"width": CHIP_SIZE	
+		})
+		outfile = f'{base_id}_{row:02}_{col:02}_ftr.tif'
+		with rio.open(outfile,"w",**ftr_meta) as dst:
+			dst.write(ftr_array)
 
 		# STATS/LOG?
 		# diabetes = lbl_array.mean() #or weighted mean.. something like that.
@@ -452,7 +458,6 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 
 	# LOG?
 	# lock.acquire()
-	# # print(f'Worker {mp.current_process()} done.')	
 	# with open(f'{CHIP_DIR}/stats.txt','a') as fp:
 	# 	fp.write('\n'.join(stats))
 	# lock.release()
@@ -527,7 +532,7 @@ if __name__ == '__main__':
 	print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
 
 	########## SPLIT AND QUEUE ################
-	chunk_size  = 100
+	chunk_size  = 50
 	N_chunks    = len(s2_good_products) // chunk_size
 	remainder   = len(s2_good_products) % chunk_size
 	chunk_queue = []
@@ -539,8 +544,8 @@ if __name__ == '__main__':
 	########## PROCESS  #######################
 	for chunk in chunk_queue:
 
-		base_ids       = []
-		tiles_in_chunk = []
+		chip_base_paths = []
+		tiles_in_chunk  = []
 
 		########## DOWNLOAD/COPY ####################
 		for b2_path in chunk:
@@ -548,23 +553,21 @@ if __name__ == '__main__':
 			# GET SOME STRINGS
 			b3_path = b2_path.replace("_B02_","_B03_")
 			b4_path = b2_path.replace("_B02_","_B04_")
-			# bands_regex = '/'.join(b2_path.split('/')[0:-1]) + '/*.jp2' #or [:-34]?
 			tile  = b2_path.split('/')[-1].split('_')[0]
 			date  = b2_path.split('/')[-1].split('_')[1]
 			orbit = b2_path.split('/')[7].split('_')[4]
-			base_ids.append(f"{tile}_{date}_{orbit}")
+			chip_base_paths.append(f"{CHIP_DIR}/{tile}_{date}_{orbit}")
 			tiles_in_chunk.append(tile)
 
 			# COPY 3 BANDS
-			# sp.run(["cp",f"{S2_DIR}/{bands_regex}",WORK_DIR,"-v"])
-			sp.run(["cp",f"{S2_DIR}/{b2_path}",WORK_DIR,"-v","-n"])
-			sp.run(["cp",f"{S2_DIR}/{b3_path}",WORK_DIR,"-v","-n"])
-			sp.run(["cp",f"{S2_DIR}/{b4_path}",WORK_DIR,"-v","-n"])
+			sp.run(["cp","-v",f"{S2_DIR}/{b2_path}",WORK_DIR])
+			sp.run(["cp","-v",f"{S2_DIR}/{b3_path}",WORK_DIR])
+			sp.run(["cp","-v",f"{S2_DIR}/{b4_path}",WORK_DIR])
 
-		# COPY NECESSARY LABELS
+		# COPY ONLY NECESSARY LABELS
 		for t in list(np.unique(tiles_in_chunk)):
-			sp.run(["cp",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR,"-v","-n"])
-			sp.run(["cp",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR,"-v","-n"])
+			sp.run(["cp","-v",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR])
+			sp.run(["cp","-v",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR])
 
 
 		########## CHIP ####################
@@ -574,20 +577,25 @@ if __name__ == '__main__':
 			local_b2_path = product.split('/')[-1]
 			local_b3_path = local_b2_path.replace("_B02_","_B03_")
 			local_b4_path = local_b2_path.replace("_B02_","_B03_")
-			b2_reader = rio.open(f"{WORK_DIR}/{local_b2_path}",'r',tiled=True)
-			b3_reader = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
-			b4_reader = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
-			rgb_readers = [b4_reader,b3_reader,b2_reader]
+			b2_reader     = rio.open(f"{WORK_DIR}/{local_b2_path}",'r',tiled=True)
+			b3_reader     = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
+			b4_reader     = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
+			rgb_readers   = [b4_reader,b3_reader,b2_reader]
 			label_path   = f"{WORK_DIR}/{tiles_in_chunk[i]}_diabetes.tif"
 			feature_path = f"{WORK_DIR}/{tiles_in_chunk[i]}_features.tif"
 
 			# CHIP
-			chip_image(rgb_readers,label_path,feature_path,base_ids[i],i,len(chunk))
+			chip_image(rgb_readers,label_path,feature_path,chip_base_paths[i],i,len(chunk))
 
 
 		########## DELETE FILES ############
-		sp.run(["rm",f"{WORK_DIR}/*.tif","-v"])
-		sp.run(["rm",f"{WORK_DIR}/*.jp2","-v"])
+		print("Deleting.tif files...")
+		for file_path in glob.glob(os.path.join(WORK_DIR, '*.tif')):
+		    os.remove(file_path)
+
+		print("Deleting .jp2 files...")
+		for file_path in glob.glob(os.path.join(WORK_DIR, '*.jp2')):
+			os.remove(file_path)
 
 
 	print("DONE.")
