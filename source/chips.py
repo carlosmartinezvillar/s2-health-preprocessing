@@ -408,6 +408,7 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 	lbl_rdr = rio.open(label_path,'r',tiled=True) #1 band, uint16
 	ftr_rdr = rio.open(feature_path,'r',tiled=True) #3 bands, uint16
 
+	ftr_dir = base_id.replace("chips","features")
 	# Log chip info?
 	# stats = []
 
@@ -448,7 +449,7 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 			"height": CHIP_SIZE,
 			"width": CHIP_SIZE	
 		})
-		outfile = f'{base_id}_{row:02}_{col:02}_ftr.tif'
+		outfile = f'{ftr_dir}_{row:02}_{col:02}_ftr.tif'
 		with rio.open(outfile,"w",**ftr_meta) as dst:
 			dst.write(ftr_array)
 
@@ -496,6 +497,7 @@ if __name__ == '__main__':
 
 	if CHIP_DIR is None:
 		os.makedirs(WORK_DIR + '/chips',exist_ok=True)
+		os.makedirs(WORK_DIR + '/features',exist_ok=True)
 		CHIP_DIR = WORK_DIR + '/chips'
 	if not os.path.isdir(CHIP_DIR):
 		print(f"CHIP_DIR in {CHIP_DIR} not found. EXIT(1).")
@@ -521,14 +523,18 @@ if __name__ == '__main__':
 
 	########## GET UNIQUE TILES FROM LABEL DIR ###############
 	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
-	unique_tiles = [s.split('_')[0] for s in label_tiffs]
+	label_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECTION ##########
 	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2" #1637
 	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
 	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
-	intersection     = np.isin(s2_tiles,unique_tiles)
-	s2_good_products = np.array(s2_tiffs)[intersection]
+
+	unique_s2_tiles, unique_s2_tiles_idx  = np.unique(s2_tiles,return_index=True)
+	unique_s2_tiffs = s2_tiffs[unique_s2_tiles_idx]
+
+	intersection     = np.isin(unique_s2_tiles,label_tiles)
+	s2_good_products = unique_s2_tiffs[intersection]
 	print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
 
 	########## SPLIT AND QUEUE ################
