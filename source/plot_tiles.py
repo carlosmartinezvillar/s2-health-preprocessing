@@ -7,120 +7,243 @@ import pandas as pd
 import geopandas as gpd
 from shapely import wkt
 import matplotlib.patches as mpatches
+import numpy as np
  
+# FILE PATHS
+US_SHP_PATH      = "../figures/cb_2024_us_state_500k/cb_2024_us_state_500k.shp"
+TRACTS_GEOM      = "../shapes/all_tracts/all_tracts.shp"
+S2_PRODUCTS_GEOM = "../other/search_results_geometries_2025.tsv"
 
-def plot_tiles():
+PLOT_CRS         = "EPSG:5070"
+LABEL_MASK_LIST  = "../other/label_tiles.txt" #246 rasters w/ distinct tiles
+
+def plot_tiles_and_tracts():
 	'''
-	Plot a polygons of the United States along with the polygons of the 
-	tiles in the dataset.
+	Plot polygons of the United States, census tract polygons, and tile polygons 
+	in dataset.
 	'''
-
-	# FILE PATHS
-	US_SHP_PATH      = "../figures/cb_2024_us_state_500k/cb_2024_us_state_500k.shp"
-	TRACTS_GEOM      = "../shapes/all_tracts/all_tracts.shp"
-	S2_PRODUCTS_GEOM = "../other/search_results_geometries_2025.tsv"
-	OUT_PATH         = "../figures/tiles.png"
-	PLOT_CRS         = "EPSG:5070"
-
+	# ---------------------------------------------------------------------------
 	# 1. LOAD FILES
-	#---------------
+	# ---------------------------------------------------------------------------
 	# 1.1 LOAD US STATES
 	states      = gpd.read_file(US_SHP_PATH)
 	territories = ['PR','AS','VI','MP','GU','AK','HI']
 	contiguous  = states[~states['STUSPS'].isin(territories)]
 
 	# 1.2 LOAD SENTINEL TILES USED --- load tsv file & clean.
-	df = pd.read_csv(TSV_PATH, sep="\t", header=None, names=["scene_id", "geometry_raw"])
-	print(f"Loaded {len(df)} rows.")
+	with open(S2_PRODUCTS_GEOM,'r') as fp:
+		lines = fp.readlines()
+	safe_ids  = [l.split('\t')[0] for l in lines]
+	tile_geom = [l.split('\t')[1].split(';')[1].rstrip("'") for l in lines]
 
-# ---------------------------------------------------------------------------
-# 2. Extract MGRS tile ID from scene_id
-#    Sentinel-2 naming: …_T14TNQ_… → tile = "T14TNQ"
-# ---------------------------------------------------------------------------
-MGRS_PATTERN = re.compile(r"(T\d{2}[A-Z]{3})")
- 
-df["mgrs_tile"] = df["scene_id"].str.extract(MGRS_PATTERN)
- 
-print(f"Unique MGRS tiles found: {df['mgrs_tile'].nunique()}")
-print(df["mgrs_tile"].value_counts().head(10))
- 
- 
-# ---------------------------------------------------------------------------
-# 3. Define the MGRS tiles you want to keep
-#    Edit this set to filter to whichever tiles you need.
-# ---------------------------------------------------------------------------
-TILES_OF_INTEREST = set(df["mgrs_tile"].dropna().unique())  # default: all tiles
-# Example — uncomment and customise to restrict:
-# TILES_OF_INTEREST = {"T14TNQ", "T14SMF", "T14TNM", "T15TUK"}
- 
-mask = df["mgrs_tile"].isin(TILES_OF_INTEREST)
-df_filtered = df[mask].copy()
-print(f"Rows after MGRS filter: {len(df_filtered)}")
- 
- 
-# ---------------------------------------------------------------------------
-# 4. Parse WKT geometries
-#    Raw format: geography'SRID=4326;POLYGON ((...))' — strip the prefix.
-# ---------------------------------------------------------------------------
-def parse_geometry(raw: str):
-    """Strip the geography'SRID=4326;' prefix and parse the WKT."""
-    # Remove everything up to and including the first ';'
-    wkt_str = re.sub(r"^geography'SRID=\d+;", "", raw).rstrip("'")
-    try:
-        return wkt.loads(wkt_str)
-    except Exception:
-        return None
- 
- 
-df_filtered["geometry"] = df_filtered["geometry_raw"].apply(parse_geometry)
- 
-# Drop rows where geometry parsing failed
-n_bad = df_filtered["geometry"].isna().sum()
-if n_bad:
-    print(f"Warning: {n_bad} geometries failed to parse and were dropped.")
-df_filtered = df_filtered[df_filtered["geometry"].notna()]
+	# 1.3 LOAD CENSUS TRACTS
+	all_tracts = gpd.read_file(TRACTS_GEOM)
 
+	# ---------------------------------------------------------------------------
+	# 2. Extract MGRS tile ID/Set to actual tiles used (in labels)
+	# ---------------------------------------------------------------------------
+	mgrs = [s.split("_")[5] for s in safe_ids]
+	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
+	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
+	
+	with open(LABEL_MASK_LIST,'r') as fp:
+		label_tiles = [line.split('_')[0] for line in fp.readlines()]
  
+	good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
+	good_mgrs      = unique_mgrs[good_mgrs_mask]
+	good_tile_geom = unique_tile_geom[good_mgrs_mask]
 
-	# tiles_gut = gpd.read_file(S2_) # read
-	# tiles_gut['geometry'] = tiles_gut.geometry.apply(lambda x: x.geoms[0]) #POLYGON in GEOMETRYCOLLECTION
-	# tiles_bad = gpd.read_file(S2_KML_PATH_2, driver='KML') # read
-	# tiles_bad['geometry'] = tiles_bad.geometry.apply(lambda x: x.geoms[0]) #POLYGON in GEOMETRYCOLLECTION
+	bad_mgrs      = unique_mgrs[~good_mgrs_mask]
+	bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
 
+	# ---------------------------------------------------------------------------
+	# 3. Parse WKT geometries
+	#    Raw format: geography'SRID=4326;POLYGON ((...))' — strip the prefix.
+	# ---------------------------------------------------------------------------
+	good_tile_wkts = [wkt.loads(s) for s in good_tile_geom]
+	tile_df = pd.DataFrame({"tile": good_mgrs})
+	tile_gdf = gpd.GeoDataFrame(
+	    tile_df,
+	    geometry=good_tile_wkts,
+	    crs="EPSG:4326"
+	)
 
-	# 2. PROJECT TO COMMON CRS
-	#-------------------------
-	contiguous = contiguous.to_crs(common_crs)
-	tiles_gut  = tiles_gut.to_crs(common_crs)
-	tiles_bad  = tiles_bad.to_crs(common_crs)
-	water      = water.to_crs(common_crs)
+	bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
+	bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
+	bad_tile_gdf  = gpd.GeoDataFrame(
+	    bad_tile_df,
+	    geometry=bad_tile_wkts,
+	    crs="EPSG:4326"
+	)
+	bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
 
-	# 3. PLOT LAYERS
-	# --------------
+	# ---------------------------------------------------------------------------
+	# 4. PROJECT TO COMMON CRS
+	# ---------------------------------------------------------------------------
+	contiguous    = contiguous.to_crs(PLOT_CRS)
+	tile_gdf      = tile_gdf.to_crs(PLOT_CRS)
+	bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
+	all_tracts    = all_tracts.to_crs(PLOT_CRS)
+
+	# ---------------------------------------------------------------------------
+	# 5. PLOT LAYERS
+	# ---------------------------------------------------------------------------
 	fig, ax = plt.subplots(1,1,figsize=(24,20))
 
-	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
-	tiles_gut.plot(ax=ax,color='red',alpha=0.3,edgecolor='red',linewidth=1.0)
-	# tiles_bad.plot(ax=ax,color='blue',alpha=0.3,edgecolor='blue',linewidth=1.5)
+	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.15)
+	all_tracts.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.1)
+	tile_gdf.plot(ax=ax,color='blue',alpha=0.1,edgecolor='blue',linewidth=1.0)
+	bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
 
 	# zoom in
 	xmin, ymin, xmax, ymax = contiguous.total_bounds
-	print(f"X:{xmin}--{xmax} | Y: {ymin}--{ymax}")
-
+	# print(f"X:{xmin}--{xmax} | Y: {ymin}--{ymax}")
 	x_range = xmax - xmin
 	y_range = ymax - ymin
-	xmax = x_range*0.35 + xmin #~1/3 of US in plot
-	xmin = xmin - x_range*0.02
-	ymax = ymin + y_range*0.85
-	ymin = ymin + y_range*0.30
-
+	xmin = x_range*0.3 + xmin #last ~2/3 of contiguous US
 	ax.set_xlim(xmin,xmax)
 	ax.set_ylim(ymin,ymax)
 
-	ax.set_title("Sentinel-2 (MGRS) Tiles",fontsize=24)
+	# title, layout, etc
+	ax.set_title("Census Tracts & Intersecting Sentinel-2 Tiles",fontsize=24)
 	ax.set_axis_off()
 	plt.tight_layout()
-	plt.savefig(OUT_PATH)
+	plt.savefig("../figures/tiles_tracts.png")
+
+
+def plot_tiles():
+	'''
+	Plot polygons of the United States and S2 tile polygons dataset.
+	'''
+	# ---------------------------------------------------------------------------
+	# 1. LOAD FILES
+	# ---------------------------------------------------------------------------
+	# 1.1 LOAD US STATES
+	states      = gpd.read_file(US_SHP_PATH)
+	territories = ['PR','AS','VI','MP','GU','AK','HI']
+	contiguous  = states[~states['STUSPS'].isin(territories)]
+
+	# 1.2 LOAD SENTINEL TILES USED --- load tsv file & clean.
+	# df = pd.read_csv(S2_PRODUCTS_GEOM, sep="\t", header=None, names=["scene_id", "geometry_raw"])
+	# print(f"Loaded {len(df)} rows.")
+	with open(S2_PRODUCTS_GEOM,'r') as fp:
+		lines = fp.readlines()
+	safe_ids  = [l.split('\t')[0] for l in lines]
+	tile_geom = [l.split('\t')[1].split(';')[1].rstrip("'") for l in lines]
+
+	# ---------------------------------------------------------------------------
+	# 2. Extract MGRS tile ID/Set to actual tiles in labels
+	# ---------------------------------------------------------------------------
+	mgrs = [s.split("_")[5] for s in safe_ids]
+	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
+	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
+	
+	with open(LABEL_MASK_LIST,'r') as fp:
+		label_tiles = [line.split('_')[0] for line in fp.readlines()]
+ 
+	good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
+	good_mgrs      = unique_mgrs[good_mgrs_mask]
+	good_tile_geom = unique_tile_geom[good_mgrs_mask]
+
+	bad_mgrs      = unique_mgrs[~good_mgrs_mask]
+	bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+
+	# ---------------------------------------------------------------------------
+	# 3. Parse WKT geometries
+	#    Raw format: geography'SRID=4326;POLYGON ((...))' — strip the prefix.
+	# ---------------------------------------------------------------------------
+	good_tile_wkts = [wkt.loads(s) for s in good_tile_geom]
+	tile_df = pd.DataFrame({"tile": good_mgrs})
+	tile_gdf = gpd.GeoDataFrame(
+	    tile_df,
+	    geometry=good_tile_wkts,
+	    crs="EPSG:4326"
+	)
+
+	bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
+	bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
+	bad_tile_gdf  = gpd.GeoDataFrame(
+	    bad_tile_df,
+	    geometry=bad_tile_wkts,
+	    crs="EPSG:4326"
+	)
+	bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
+
+	# ---------------------------------------------------------------------------
+	# 4. PROJECT TO COMMON CRS
+	# ---------------------------------------------------------------------------
+	contiguous    = contiguous.to_crs(PLOT_CRS)
+	tile_gdf      = tile_gdf.to_crs(PLOT_CRS)
+	bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
+
+	# ---------------------------------------------------------------------------
+	# 5. PLOT LAYERS
+	# ---------------------------------------------------------------------------
+	#figure
+	fig, ax = plt.subplots(1,1,figsize=(24,20))
+
+	#plot
+	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
+	tile_gdf.plot(ax=ax,color='blue',alpha=0.1,edgecolor='blue',linewidth=1.0)
+	bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
+
+	# zoom in
+	xmin, ymin, xmax, ymax = contiguous.total_bounds
+	x_range = xmax - xmin
+	y_range = ymax - ymin
+	xmin = x_range*0.3 + xmin #last ~2/3 of contiguous US
+	ax.set_xlim(xmin,xmax)
+	ax.set_ylim(ymin,ymax)
+
+	# title, layout, etc
+	ax.set_title("Dataset Sentinel-2 Tiles",fontsize=24)
+	ax.set_axis_off()
+	plt.tight_layout()
+	plt.savefig("../figures/tiles.png")
+
+
+def plot_tracts():
+	'''
+	Plot US polygons and census tract polygons.
+	'''
+	# ---------------------------------------------------------------------------
+	# 1. LOAD FILES
+	# ---------------------------------------------------------------------------
+	# 1.1 LOAD US STATES
+	states      = gpd.read_file(US_SHP_PATH)
+	territories = ['PR','AS','VI','MP','GU','AK','HI']
+	contiguous  = states[~states['STUSPS'].isin(territories)]	
+	all_tracts  = gpd.read_file(TRACTS_GEOM)
+
+	# ---------------------------------------------------------------------------
+	# 2. PROJECT TO COMMON CRS
+	# ---------------------------------------------------------------------------
+	contiguous    = contiguous.to_crs(PLOT_CRS)
+	all_tracts    = all_tracts.to_crs(PLOT_CRS)
+
+	# ---------------------------------------------------------------------------
+	# 3. PLOT LAYERS
+	# ---------------------------------------------------------------------------
+	# ax figure
+	fig, ax = plt.subplots(1,1,figsize=(24,20))
+
+	# plot
+	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
+	all_tracts.plot(ax=ax,color='red',alpha=0.5,edgecolor='black',linewidth=0.1)
+
+	# zoom in
+	xmin, ymin, xmax, ymax = contiguous.total_bounds
+	x_range = xmax - xmin
+	y_range = ymax - ymin
+	xmin = x_range*0.3 + xmin #last ~2/3 of contiguous US
+	ax.set_xlim(xmin,xmax)
+	ax.set_ylim(ymin,ymax)
+
+	# title, layout, etc
+	ax.set_title("Dataset Census Tracts",fontsize=24)
+	ax.set_axis_off()
+	plt.tight_layout()
+	plt.savefig("../figures/tracts.png")
 
 
 def plot_label(path):
@@ -130,17 +253,22 @@ def plot_label(path):
 	with rasterio.open(path) as src:
 	    band_data = src.read(1, masked=False)
 
+	band_data = band_data/10 #percentage stored as 0-999 to save memory with uint16
+
 	tile_str = path.split('/')[-1].split('_')[0]
 
 	# 2. Plot the array with a specific data range and colormap
 	plt.figure(figsize=(8, 6))
-	plt.imshow(band_data, cmap='terrain', vmin=0, vmax=1000)
+	plt.imshow(band_data, cmap='terrain', vmin=0, vmax=100)
 
 	# 3. Add a colorbar and display the plot
-	plt.colorbar(label='Diabetes Prevalence')
+	plt.colorbar(label='Diabetes Prevalence (%)')
 	plt.title(f'Tile {tile_str}')
 	plt.show()	
 
 
 if __name__ == "__main__":
-	plot_label('../masks/T13SGB_diabetes.tif')
+	# plot_label('../masks/T13SGB_diabetes.tif')
+	plot_tiles_and_tracts()
+	plot_tiles()
+	plot_tracts()
