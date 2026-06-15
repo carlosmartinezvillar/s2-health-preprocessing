@@ -530,8 +530,9 @@ if __name__ == '__main__':
 	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
 	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
 
+	#limit to a single product per tile
 	unique_s2_tiles, unique_s2_tiles_idx  = np.unique(s2_tiles,return_index=True)
-	unique_s2_tiffs = s2_tiffs[unique_s2_tiles_idx]
+	unique_s2_tiffs = np.array(s2_tiffs)[unique_s2_tiles_idx]
 
 	intersection     = np.isin(unique_s2_tiles,label_tiles)
 	s2_good_products = unique_s2_tiffs[intersection]
