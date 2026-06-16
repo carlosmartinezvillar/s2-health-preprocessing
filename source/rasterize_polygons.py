@@ -6,7 +6,7 @@ particular features. This is done via two files.
 The first file is simply the labels, and corresponds to the disease prevalance.
 This value is applied to each pixel in a chip covering a tract with that value.
 The second file, "the mask", maps individual pixels to the remaining features of
-RUCA code, population, area.
+RUCA code, population, area, and a tract index following the row order of filtered_diabetes.csv
 '''
 ############################################################
 # LIBRARIES
@@ -148,9 +148,6 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> N
 	with rasterio.open(features_path, "w", **s2_meta) as dest:
 	    dest.write(rasterized_features)
 	print(f"Feature file written to {features_path}.")
-
-	# LOG POLYGON IDs IN TILE <---- MISSING
-	# something like {tile}\t{id_0,id_1,id_2,...}
 
 
 

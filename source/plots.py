@@ -254,6 +254,7 @@ def plot_label(path):
 	    band_data = src.read(1, masked=False)
 
 	band_data = band_data/10 #percentage stored as 0-999 to save memory with uint16
+	unique_diabetes_values = np.unique(band_data)
 
 	tile_str = path.split('/')[-1].split('_')[0]
 
@@ -262,13 +263,107 @@ def plot_label(path):
 	plt.imshow(band_data, cmap='terrain', vmin=0, vmax=100)
 
 	# 3. Add a colorbar and display the plot
-	plt.colorbar(label='Diabetes Prevalence (%)')
+	plt.colorbar(label='Prevalence (%/1000)')
+	plt.title(f'Tile {tile_str} –– Diabetes Prevalence')
+	plt.show()
+
+
+def plot_features(path):
+	'''
+	Plot feature .tif for entire MGRS tile
+	'''
+	with rasterio.open(path) as src:
+		band_data = src.read([1,2,3],masked=False)
+
+	ruca_code   = band_data[0,:,:]
+	population  = band_data[1,:,:]
+	land_area   = band_data[2,:,:] / 10 #stored as uint16 by multiplying original single-decimal floats by 10
+	# tract_index = band_data[3,:,:]
+
+	unique_ruca       = np.unique(ruca_code)
+	unique_population = np.unique(population)
+	unique_land_area  = np.unique(land_area)
+	# unique_indices    = np.unique(tract_index)
+
+	tile_str = path.split('/')[-1].split('_')[0]
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(ruca_code, cmap='terrain', vmin=0, vmax=9) #0-9
+	plt.colorbar(label='Primary RUCA Code')
 	plt.title(f'Tile {tile_str}')
-	plt.show()	
+	plt.show()
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(population, cmap='terrain', vmin=0, vmax=8000) #0-9
+	plt.colorbar(label='Population')
+	plt.title(f'Tile {tile_str}')
+	plt.show()
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(land_area, cmap='terrain', vmin=0, vmax=30000) #0-22k? or something like that, check filtered_diabetes.csv
+	plt.colorbar(label='Area')
+	plt.title(f'Tile {tile_str} -- Census Tract Area')
+	plt.show()
+
+	# plt.figure(figsize=(8, 6))
+	# plt.imshow(tract_index, cmap='terrain', vmin=0, vmax=16473) #0-16473
+	# plt.colorbar(label='Filtered CSV Tract Index')
+	# plt.title(f'{tile_str}, Values: {str(list(unique_indices))}')
+	# plt.show()
+
+
+def plot_features_chip(path):
+	'''
+	Plot a feature .tif for a chip
+	'''
+	with rasterio.open(path) as src:
+		band_data = src.read([1,2,3,4],masked=False)
+
+	ruca_code   = band_data[0,:,:]
+	population  = band_data[1,:,:]
+	land_area   = band_data[2,:,:] / 10 #stored as uint16 by multiplying original single-decimal floats by 10
+	tract_index = band_data[3,:,:]
+
+	tile_str = path.split('/')[-1].split('_')[0]
+	tile_row,tile_col = path.split('/')[-1].split('_')[3:5]
+
+	unique_ruca       = np.unique(ruca_code)
+	unique_population = np.unique(population)
+	unique_land_area  = np.unique(land_area)
+	unique_indices    = np.unique(tract_index)
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(ruca_code, cmap='terrain', vmin=0, vmax=9) #0-9
+	plt.colorbar(label='Primary RUCA Code')
+	plt.title(f'{tile_str}_{tile_row}_{tile_col}, Values: {str(list(unique_ruca))}')
+	plt.show()
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(population, cmap='terrain', vmin=0, vmax=8000) #0-9
+	plt.colorbar(label='Population')
+	plt.title(f'{tile_str}_{tile_row}_{tile_col}, Values: {str(list(unique_population))}')
+	plt.show()
+
+	plt.figure(figsize=(8, 6))
+	plt.imshow(land_area, cmap='terrain', vmin=0, vmax=30000) #0-22k? or something like that
+	plt.colorbar(label='Area')
+	plt.title(f'{tile_str}_{tile_row}_{tile_col}, Values: {str(list(unique_land_area))}')
+	plt.show()
+
+	# plt.figure(figsize=(8, 6))
+	# plt.imshow(tract_index, cmap='terrain', vmin=0, vmax=16473) #0-16473
+	# plt.colorbar(label='Filtered CSV Tract Index')
+	# plt.title(f'{tile_str}, Values: {str(list(unique_indices))}')
+	# plt.show()
+
 
 
 if __name__ == "__main__":
 	# plot_label('../masks/T13SGB_diabetes.tif')
-	plot_tiles_and_tracts()
-	plot_tiles()
-	plot_tracts()
+	# plot_tiles_and_tracts()
+	# plot_tiles()
+	# plot_tracts()
+
+	# plot_label('../../health_chips/chips/T15TUH_20250619T165849_R069_39_42_lbl.tif')
+	# plot_features_chip('../../health_chips/features/T15TUH_20250619T165849_R069_39_42_ftr.tif')
+	plot_features('../../health_chips/T15TUH_features.tif')
