@@ -62,7 +62,7 @@ merged = pd.merge(
 merged['LocationID'] = merged['LocationID'].astype(str)
 
 # DROP ROWS WITH RUCA==10 (most rural, lowest commute category)
-merged = merged[merged['PrimaryRUCA'] != 10]
+# merged = merged[merged['PrimaryRUCA'] != 10]
 
 # DROP NAN ROWS
 merged = merged.dropna()

@@ -8,7 +8,7 @@ import glob
 import os
 
 # GET PATHS
-shp_paths = glob.glob("../shapes/tl_2025_*_tract/tl_2025_*_tract.shp")
+shp_paths = glob.glob("../shapes/tl_2023_*_tract/tl_2023_*_tract.shp")
 
 # LOAD SHAPE FILES
 gdf_list = []
