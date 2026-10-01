@@ -12,7 +12,7 @@ import numpy as np
 # FILE PATHS
 US_SHP_PATH      = "../figures/cb_2024_us_state_500k/cb_2024_us_state_500k.shp"
 TRACTS_GEOM      = "../shapes/all_tracts/all_tracts.shp"
-S2_PRODUCTS_GEOM = "../other/search_results_geometries_2025.tsv"
+S2_PRODUCTS_GEOM = "../other/search_results_geometries_2023.tsv"
 
 PLOT_CRS         = "EPSG:5070"
 LABEL_MASK_LIST  = "../other/label_tiles.txt" #246 rasters w/ distinct tiles
@@ -46,15 +46,19 @@ def plot_tiles_and_tracts():
 	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
 	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
 	
-	with open(LABEL_MASK_LIST,'r') as fp:
-		label_tiles = [line.split('_')[0] for line in fp.readlines()]
+	# with open(LABEL_MASK_LIST,'r') as fp:
+		# label_tiles = [line.split('_')[0] for line in fp.readlines()]
  
-	good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
-	good_mgrs      = unique_mgrs[good_mgrs_mask]
-	good_tile_geom = unique_tile_geom[good_mgrs_mask]
+	# good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
+	# good_mgrs      = unique_mgrs[good_mgrs_mask]
+	# good_tile_geom = unique_tile_geom[good_mgrs_mask]
 
-	bad_mgrs      = unique_mgrs[~good_mgrs_mask]
-	bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+	# bad_mgrs      = unique_mgrs[~good_mgrs_mask]
+	# bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+
+	# DON'T FILTER
+	good_mgrs      = unique_mgrs
+	good_tile_geom = unique_tile_geom
 
 	# ---------------------------------------------------------------------------
 	# 3. Parse WKT geometries
@@ -68,21 +72,21 @@ def plot_tiles_and_tracts():
 	    crs="EPSG:4326"
 	)
 
-	bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
-	bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
-	bad_tile_gdf  = gpd.GeoDataFrame(
-	    bad_tile_df,
-	    geometry=bad_tile_wkts,
-	    crs="EPSG:4326"
-	)
-	bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
+	# bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
+	# bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
+	# bad_tile_gdf  = gpd.GeoDataFrame(
+	#     bad_tile_df,
+	#     geometry=bad_tile_wkts,
+	#     crs="EPSG:4326"
+	# )
+	# bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
 
 	# ---------------------------------------------------------------------------
 	# 4. PROJECT TO COMMON CRS
 	# ---------------------------------------------------------------------------
 	contiguous    = contiguous.to_crs(PLOT_CRS)
 	tile_gdf      = tile_gdf.to_crs(PLOT_CRS)
-	bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
+	# bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
 	all_tracts    = all_tracts.to_crs(PLOT_CRS)
 
 	# ---------------------------------------------------------------------------
@@ -93,7 +97,7 @@ def plot_tiles_and_tracts():
 	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.15)
 	all_tracts.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.1)
 	tile_gdf.plot(ax=ax,color='blue',alpha=0.1,edgecolor='blue',linewidth=1.0)
-	bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
+	# bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
 
 	# zoom in
 	xmin, ymin, xmax, ymax = contiguous.total_bounds
@@ -138,15 +142,18 @@ def plot_tiles():
 	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
 	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
 	
-	with open(LABEL_MASK_LIST,'r') as fp:
-		label_tiles = [line.split('_')[0] for line in fp.readlines()]
+	# with open(LABEL_MASK_LIST,'r') as fp:
+	# 	label_tiles = [line.split('_')[0] for line in fp.readlines()]
  
-	good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
-	good_mgrs      = unique_mgrs[good_mgrs_mask]
-	good_tile_geom = unique_tile_geom[good_mgrs_mask]
+	# good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
+	# good_mgrs      = unique_mgrs[good_mgrs_mask]
+	# good_tile_geom = unique_tile_geom[good_mgrs_mask]
 
-	bad_mgrs      = unique_mgrs[~good_mgrs_mask]
-	bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+	# bad_mgrs      = unique_mgrs[~good_mgrs_mask]
+	# bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+
+	good_mgrs      = unique_mgrs
+	good_tile_geom = unique_tile_geom
 
 	# ---------------------------------------------------------------------------
 	# 3. Parse WKT geometries
@@ -160,21 +167,21 @@ def plot_tiles():
 	    crs="EPSG:4326"
 	)
 
-	bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
-	bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
-	bad_tile_gdf  = gpd.GeoDataFrame(
-	    bad_tile_df,
-	    geometry=bad_tile_wkts,
-	    crs="EPSG:4326"
-	)
-	bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
+	# bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
+	# bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
+	# bad_tile_gdf  = gpd.GeoDataFrame(
+	#     bad_tile_df,
+	#     geometry=bad_tile_wkts,
+	#     crs="EPSG:4326"
+	# )
+	# bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
 
 	# ---------------------------------------------------------------------------
 	# 4. PROJECT TO COMMON CRS
 	# ---------------------------------------------------------------------------
 	contiguous    = contiguous.to_crs(PLOT_CRS)
 	tile_gdf      = tile_gdf.to_crs(PLOT_CRS)
-	bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
+	# bad_tile_gdf  = bad_tile_gdf.to_crs(PLOT_CRS)
 
 	# ---------------------------------------------------------------------------
 	# 5. PLOT LAYERS
@@ -185,7 +192,7 @@ def plot_tiles():
 	#plot
 	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
 	tile_gdf.plot(ax=ax,color='blue',alpha=0.1,edgecolor='blue',linewidth=1.0)
-	bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
+	# bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
 
 	# zoom in
 	xmin, ymin, xmax, ymax = contiguous.total_bounds
@@ -360,10 +367,10 @@ def plot_features_chip(path):
 
 if __name__ == "__main__":
 	# plot_label('../masks/T13SGB_diabetes.tif')
-	# plot_tiles_and_tracts()
-	# plot_tiles()
-	# plot_tracts()
+	plot_tiles_and_tracts()
+	plot_tiles()
+	plot_tracts()
 
 	# plot_label('../../health_chips/chips/T15TUH_20250619T165849_R069_39_42_lbl.tif')
 	# plot_features_chip('../../health_chips/features/T15TUH_20250619T165849_R069_39_42_ftr.tif')
-	plot_features('../../health_chips/T15TUH_features.tif')
+	# plot_features('../../health_chips/T15TUH_features.tif')

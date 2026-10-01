@@ -16,6 +16,9 @@ import sys
 import argparse
 import subprocess as sp
 
+import shutil
+from concurrent.futures import ThreadPoolExecutor
+
 # Typing
 # ndarray = np.ndarray
 
@@ -35,6 +38,10 @@ STRIDE    = 256
 # NR OF PROCESSES PER RASTER
 N_PROC = 8
 
+# BANDS
+BANDS = ["B01","B02","B03","B04","B05","B06","B07","B11","B12","B8A"]
+
+URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
 ####################################################################################################
 # CLASSES
 ####################################################################################################
@@ -344,6 +351,20 @@ def get_windows(borders):
 	return windows
 
 
+def copy_single_file(src,dst):
+	shutil.copy2(src,dst)
+
+
+def copy_threaded(file_queue,dest_dir):
+
+	# List of tuples containing (source_path, destination_path)
+	file_pairs = list(zip(file_queue,[dest_dir]*len(file_queue)))
+
+	# Copy files simultaneously using 4 worker threads
+	with ThreadPoolExecutor(max_workers=N_PROC) as executor:
+		executor.map(copy_single_file, file_pairs)
+
+
 def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 
 	# STDOUT
@@ -422,12 +443,31 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 		if (lbl_array == 0).any():
 			continue
 
-		# LOAD RGB/IF NO DATA IN RGB SKIP CHIP
-		r_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-		if (r_array == 0).any():
+		# CHECK PROPORTION OF RUCA CODE==10
+		n_10 = (ftr_array[0]==10).sum()
+		if n_10 > URBAN_THRESHOLD:
 			continue
-		g_array = rgb[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-		b_array = rgb[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+
+		# LOAD BANDS/IF NO DATA IN BAND SKIP CHIP
+		b_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		if (b_array == 0).any():
+			continue
+		# g_array = rgb[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		# b_array = rgb[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+
+		for band_arr in rgb:
+			band_arr[w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+
+
+		pil_bands = [Image.fromarray(array_10_bands[i]) for i in range(10)]
+
+		# Save as a multi-frame TIFF
+		pil_bands[0].save(
+			"pillow_10_bands.tif",
+			format="TIFF",
+			save_all=True,
+			append_images=pil_bands[1:]
+		)
 
 		# GOOD -- SAVE BANDS
 		row,col = rowcol
@@ -469,7 +509,7 @@ if __name__ == '__main__':
 	########## ARGV CONFIG ##########
 	parser = argparse.ArgumentParser(
 		prog="chips.py",
-		description="Large Sentinel-2 and labels to 224x224 images.")
+		description="Large Sentinel-2 and labels to 256x256 images.")
 
 	# PATHS
 	parser.add_argument('--work-dir',default='/cache',
@@ -479,7 +519,7 @@ if __name__ == '__main__':
 	parser.add_argument('--s2-dir',default=None,
 		help="Source directory for raw Sentinel-2 products.")
 	parser.add_argument('--label-dir',default=None,
-		help="Source directory for 10980x10980 mask rasters.")
+		help="Source directory for mask rasters.")
 
 
 	########## SET ARGS ##########
@@ -526,7 +566,7 @@ if __name__ == '__main__':
 	label_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECTION ##########
-	band2_regex = "eodata/Sentinel-2/MSI/L2A/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R10m/*_B02_10m.jp2" #1637
+	band2_regex = "eodata/Sentinel-2/MSI/L2A_N0500/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2" #1637
 	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
 	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
 
@@ -554,45 +594,54 @@ if __name__ == '__main__':
 		chip_base_paths = []
 		tiles_in_chunk  = []
 
+		copy_band_queue = []
+
 		########## DOWNLOAD/COPY ####################
 		for b2_path in chunk:
 
 			# GET SOME STRINGS
-			b3_path = b2_path.replace("_B02_","_B03_")
-			b4_path = b2_path.replace("_B02_","_B04_")
+			for b in BANDS:
+				band_path = b2_path.replace("_B02_",f"_{b}_")
+				copy_band_queue.append(f"{S2_DIR}/{band_path}")
+			
 			tile  = b2_path.split('/')[-1].split('_')[0]
 			date  = b2_path.split('/')[-1].split('_')[1]
 			orbit = b2_path.split('/')[7].split('_')[4]
+
 			chip_base_paths.append(f"{CHIP_DIR}/{tile}_{date}_{orbit}")
 			tiles_in_chunk.append(tile)
 
 			# COPY 3 BANDS
-			sp.run(["cp","-v",f"{S2_DIR}/{b2_path}",WORK_DIR])
-			sp.run(["cp","-v",f"{S2_DIR}/{b3_path}",WORK_DIR])
-			sp.run(["cp","-v",f"{S2_DIR}/{b4_path}",WORK_DIR])
+			# sp.run(["cp","-v",f"{S2_DIR}/{b2_path}",WORK_DIR])
+			# sp.run(["cp","-v",f"{S2_DIR}/{b3_path}",WORK_DIR])
+			# sp.run(["cp","-v",f"{S2_DIR}/{b4_path}",WORK_DIR])
+
+		copy_threaded(copy_band_queue,WORK_DIR)
+
 
 		# COPY ONLY NECESSARY LABELS
+		copy_mask_queue = []
 		for t in list(np.unique(tiles_in_chunk)):
-			sp.run(["cp","-v",f"{LABEL_DIR}/{t}_diabetes.tif",WORK_DIR])
-			sp.run(["cp","-v",f"{LABEL_DIR}/{t}_features.tif",WORK_DIR])
+			copy_mask_queue.append(f"{LABEL_DIR}/{t}_diabetes.tif")
+			copy_mask_queue.append(f"{LABEL_DIR}/{t}_features.tif")
 
+		copy_threaded(copy_mask_queue,WORK_DIR)
 
 		########## CHIP ####################
 		for i,product in enumerate(chunk):
 
 			# PATHS & READERS
 			local_b2_path = product.split('/')[-1]
-			local_b3_path = local_b2_path.replace("_B02_","_B03_")
-			local_b4_path = local_b2_path.replace("_B02_","_B03_")
-			b2_reader     = rio.open(f"{WORK_DIR}/{local_b2_path}",'r',tiled=True)
-			b3_reader     = rio.open(f"{WORK_DIR}/{local_b3_path}",'r',tiled=True)
-			b4_reader     = rio.open(f"{WORK_DIR}/{local_b4_path}",'r',tiled=True)
-			rgb_readers   = [b4_reader,b3_reader,b2_reader]
+
+			for b in BANDS:
+				local_band_path = local_b2_path.replace("_B02_",f"_{b}_")
+				band_readers.append(rio.open(f"{WORK_DIR}/{local_band_path}",'r',tiled=True))
+
 			label_path   = f"{WORK_DIR}/{tiles_in_chunk[i]}_diabetes.tif"
 			feature_path = f"{WORK_DIR}/{tiles_in_chunk[i]}_features.tif"
 
 			# CHIP
-			chip_image(rgb_readers,label_path,feature_path,chip_base_paths[i],i,len(chunk))
+			chip_image(band_readers,label_path,feature_path,chip_base_paths[i],i,len(chunk))
 
 
 		########## DELETE FILES ############

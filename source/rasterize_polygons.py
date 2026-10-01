@@ -106,7 +106,6 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> N
 		"nodata": 0
 	})
 
-	os.makedirs(f"{data_dir}/masks", exist_ok=True)
 	with rasterio.open(label_path, "w", **s2_meta) as dest:
 	    dest.write(rasterized_label, 1)
 	print(f"Label file written to {label_path}.")
@@ -189,23 +188,18 @@ if __name__ == '__main__':
 		help="Flag. If set, download Sentinel-2 products needed.")
 	args = parser.parse_args()
 
-	if args.data_dir is None:
-		print("Got None for data-dir argument.")
-		sys.exit(1)
-
-	if not os.path.isdir(args.data_dir):
-		print(f"Data dir {args.data_dir} not found.")
-		sys.exit(1)
-
+	assert args.data_dir is not None, "Got None for data-dir argument."
+	assert os.path.isdir(args.data_dir), f"Data dir {args.data_dir} not found."
+	os.makedirs(f"{args.data_dir}/masks", exist_ok=True)
 
 	# FIND UNIQUE TILES
 	# assume running inside s2-health-preprocessing/source/
 	with open('../other/search_results_2023.tsv','r') as fp:
-	# with open('../other/search_subset.tsv') as fp: #--testing
 		s2_ids = [l.split('\t')[0] for l in fp.readlines()]
 	mgrs_tiles = [s.split('_')[5] for s in s2_ids]
 	unique_mgrs,first_index = np.unique(mgrs_tiles,return_index=True)
 	unique_ids = np.array(s2_ids)[first_index]
+	print(f"{len(mgrs_tiles)} Products. {len(unique_ids)} unique MGRS tiles.")
 	# 281 tiles,1318 products,05/15--08/15*
 
 
@@ -213,17 +207,17 @@ if __name__ == '__main__':
 	if args.download:
 		remote_paths = [get_remote_band_path(s) for s in unique_ids]
 
-		# CP/UNIX
+		# CP/UNIX/LOCAL
 		# for rp in remote_paths:
 		# 	path = REMOTE_PATH+'/'+rp
 		# 	sp.run(["cp",path,args.data_dir]) #<--- need to add parent dir structure
 
 		# S3/RCLONE
-		with open("../other/temp_include.txt",'w') as fp:
+		with open("../other/unique_tile_files.txt",'w') as fp:
 			fp.write("\n".join(remote_paths))
 
 		#run rclone download
-		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/temp_include.txt","--stats","10s","-v"])
+		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/unique_tile_files.txt","--stats","10s"])
 
 
 	# LOAD ALL POLYGONS
