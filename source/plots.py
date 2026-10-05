@@ -8,7 +8,8 @@ import geopandas as gpd
 from shapely import wkt
 import matplotlib.patches as mpatches
 import numpy as np
- 
+import glob 
+
 # FILE PATHS
 US_SHP_PATH      = "../figures/cb_2024_us_state_500k/cb_2024_us_state_500k.shp"
 TRACTS_GEOM      = "../shapes/all_tracts/all_tracts.shp"
@@ -261,16 +262,20 @@ def plot_label(path):
 	    band_data = src.read(1, masked=False)
 
 	band_data = band_data/10 #percentage stored as 0-999 to save memory with uint16
-	unique_diabetes_values = np.unique(band_data)
+	unique_diabetes_values,counts = np.unique(band_data,return_counts=True)
 
-	tile_str = path.split('/')[-1].split('_')[0]
+	# Print nr px each tract in tile
+	print(f"Unique values: {unique_diabetes_values}")
+	print(f"Counts: {counts}")
+
 
 	# 2. Plot the array with a specific data range and colormap
 	plt.figure(figsize=(8, 6))
 	plt.imshow(band_data, cmap='terrain', vmin=0, vmax=100)
 
 	# 3. Add a colorbar and display the plot
-	plt.colorbar(label='Prevalence (%/1000)')
+	plt.colorbar(label='Prevalence (%)')
+	tile_str = path.split('/')[-1].split('_')[0]
 	plt.title(f'Tile {tile_str} –– Diabetes Prevalence')
 	plt.show()
 
@@ -367,10 +372,17 @@ def plot_features_chip(path):
 
 if __name__ == "__main__":
 	# plot_label('../masks/T13SGB_diabetes.tif')
-	plot_tiles_and_tracts()
-	plot_tiles()
-	plot_tracts()
+	# plot_tiles_and_tracts()
+	# plot_tiles()
+	# plot_tracts()
 
+	# PLOT ENTIRE TILE
+	data_dir = '../../../cache'
+	a_label = sorted(glob.glob("masks/T*_diabetes.tif",root_dir=f'{data_dir}'))[0]
+	plot_label(f'{data_dir}/{a_label}')
+	plot_features(f'{data_dir}/{a_label.replace("diabetes","features")}')
+
+	# PLOT CHIPS
 	# plot_label('../../health_chips/chips/T15TUH_20250619T165849_R069_39_42_lbl.tif')
 	# plot_features_chip('../../health_chips/features/T15TUH_20250619T165849_R069_39_42_ftr.tif')
 	# plot_features('../../health_chips/T15TUH_features.tif')

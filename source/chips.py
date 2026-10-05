@@ -18,9 +18,7 @@ import subprocess as sp
 
 import shutil
 from concurrent.futures import ThreadPoolExecutor
-
-# Typing
-# ndarray = np.ndarray
+import tifffile as tiff
 
 __spec__ = None
 
@@ -42,79 +40,6 @@ N_PROC = 8
 BANDS = ["B01","B02","B03","B04","B05","B06","B07","B11","B12","B8A"]
 
 URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
-####################################################################################################
-# CLASSES
-####################################################################################################
-class EmptyLabelError(Exception):
-	pass
-
-class IncompleteDirError(Exception):
-	pass
-
-# class Product():
-# 	'''
-# 	An object referencing a single Sentinel-2 product in the ESA database.
-
-# 	Parameters
-# 	----------
-# 	id:
-# 	tile:
-# 	date:
-# 	orbit:
-# 	s2_fnames:
-# 	s2_readers:
-# 	gee_id:
-# 	dw_path:
-# 	dw_reader:
-# 	s2_borders:
-# 	dw_borders:
-# 	base_chip_id:
-
-# 	Methods
-# 	-------
-# 	get_band_filenames()
-# 	get_gee_id()
-
-# 	'''
-# 	def __init__(self,safe_id):
-# 		self.id    = safe_id
-# 		self.tile  = self.id[38:44]
-# 		self.date  = self.id[11:26]
-# 		self.orbit = self.id[33:37]
-
-# 		#1.1 ID -> BAND READERS
-# 		self.s2_fnames  = self.get_band_filenames() #sorted
-# 		self.s2_readers = []
-# 		for f in self.s2_fnames:
-# 			band_path = f'{WORK_DIR}/{safe_id}/{f}'
-# 			if not os.path.isfile(band_path):
-# 				raise IncompleteDirError(f"Missing band file {f}")
-# 			self.s2_readers += [rio.open(band_path,'r',tiled=True)]
-
-# 		#1.2 ID -> XML PATH
-# 		#2.XML -> DW PATH
-# 		#3.DW PATH -> DW READER
-# 		self.gee_id    = self.get_gee_id()		
-# 		self.dw_reader = rio.open(self.dw_path,'r',tiled=True)
-
-# 		#Check label
-# 		if self.dw_reader.statistics(1).max == 0:
-# 			raise EmptyLabelError("Label is zero everywhere.")
-
-# 		#4.DW READER -> BOUNDS DW
-# 		#5.DW READER+BAND2 READER -> BOUNDS S2 & BOUNDS DW
-# 		self.s2_borders,self.dw_borders = align(self.s2_readers[0],self.dw_reader)
-	
-# 		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_B0*.tif
-# 		#format: DATE_DSTRIP_TILE_ROTATION_WINROW_WINCOL_LBL.tif	
-# 		self.base_chip_id = self.gee_id + '_' + self.orbit
-
-# 	def get_band_filenames(self):
-# 		return [f'{self.tile}_{self.date}_{b}_10m.jp2' for b in ['B02','B03','B04','B08']]
-
-# 	def get_gee_id(self):
-# 		datastrip = None
-# 		return '_'.join([self.date,datastrip,self.tile])
 
 
 ####################################################################################################
@@ -372,7 +297,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	start_time = time.time()
 
 	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
-	rgb = []
+	bands = []
 	for reader in s2_readers:
 
 		# LOAD
@@ -390,7 +315,8 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 		band_array  = np.clip(band_array,low_cutoff,high_cutoff)
 		band_array  = np.round((band_array-low_cutoff)/(high_cutoff-low_cutoff)*254+1).astype(np.uint8)
 		band_array  = np.where(zero_mask,0,band_array)
-		rgb.append(band_array)
+		bands.append(band_array)
+	bands = np.array(bands)
 
 	# SET WINDOWS
 	s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
@@ -410,7 +336,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	for i in range(N_PROC):
 		p = mp.Process(
 			target=chip_image_worker,
-			args=(rgb,label_path,feature_path,s2_window_chunks[i],base_id)
+			args=(bands,label_path,feature_path,s2_window_chunks[i],base_id)
 		)
 		p.start()
 		processes.append(p)
@@ -423,7 +349,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	print(f"All workers done ({exec_time:.3f} secs). ")
 
 
-def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
+def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 
 	# Distinct rio.DatasetReader for thread/race conditions
 	lbl_rdr = rio.open(label_path,'r',tiled=True) #1 band, uint16
@@ -444,44 +370,37 @@ def chip_image_worker(rgb,label_path,feature_path,windows,base_id):
 			continue
 
 		# CHECK PROPORTION OF RUCA CODE==10
-		n_10 = (ftr_array[0]==10).sum()
-		if n_10 > URBAN_THRESHOLD:
-			continue
+		# n_10 = (ftr_array[0]==10).sum()
+		# if n_10 > URBAN_THRESHOLD:
+			# continue
 
 		# LOAD BANDS/IF NO DATA IN BAND SKIP CHIP
-		b_array = rgb[0][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		b_array = band_arrays[0,w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 		if (b_array == 0).any():
 			continue
-		# g_array = rgb[1][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-		# b_array = rgb[2][w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
 
-		for band_arr in rgb:
-			band_arr[w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-
-
-		pil_bands = [Image.fromarray(array_10_bands[i]) for i in range(10)]
-
-		# Save as a multi-frame TIFF
-		pil_bands[0].save(
-			"pillow_10_bands.tif",
-			format="TIFF",
-			save_all=True,
-			append_images=pil_bands[1:]
-		)
+		# for band_arr in band_arrays:
+			# arr = band_arr[w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		arr = band_arrays[:,w.row_off:w.row_off+CHIP_SIZE,w.col_off:w.col_off+CHIP_SIZE]
 
 		# GOOD -- SAVE BANDS
 		row,col = rowcol
 		outfile = f"{base_id}_{row:02}_{col:02}_rgb.tif"
-		r = Image.fromarray(r_array)
-		g = Image.fromarray(g_array)
-		b = Image.fromarray(b_array)
-		img = Image.merge('RGB',(r,g,b))
-		img.save(outfile)
+		tiff.imwrite(
+			outfile,
+			arr,
+			photometric="minisblack"
+		)
 
 		# SAVE LABEL
 		outfile = f'{base_id}_{row:02}_{col:02}_lbl.tif'
-		img = Image.fromarray(lbl_array)
-		img.save(outfile)
+		# img = Image.fromarray(lbl_array)
+		# img.save(outfile)
+		tiif.imwrite(
+			outfile,
+			lbl_array,
+			photometric="miniisblack"
+		)
 
 		# SAVE FEATURES
 		ftr_meta = ftr_rdr.meta.copy()
@@ -593,7 +512,6 @@ if __name__ == '__main__':
 
 		chip_base_paths = []
 		tiles_in_chunk  = []
-
 		copy_band_queue = []
 
 		########## DOWNLOAD/COPY ####################
@@ -611,13 +529,7 @@ if __name__ == '__main__':
 			chip_base_paths.append(f"{CHIP_DIR}/{tile}_{date}_{orbit}")
 			tiles_in_chunk.append(tile)
 
-			# COPY 3 BANDS
-			# sp.run(["cp","-v",f"{S2_DIR}/{b2_path}",WORK_DIR])
-			# sp.run(["cp","-v",f"{S2_DIR}/{b3_path}",WORK_DIR])
-			# sp.run(["cp","-v",f"{S2_DIR}/{b4_path}",WORK_DIR])
-
 		copy_threaded(copy_band_queue,WORK_DIR)
-
 
 		# COPY ONLY NECESSARY LABELS
 		copy_mask_queue = []

@@ -155,7 +155,14 @@ def get_local_band_path(s2_id:str,data_dir:str) -> str:
 	y = date[0:4]
 	m = date[4:6]
 	d = date[6:8]
-	band_regex = f"eodata/Sentinel-2/MSI/L2A/{y}/{m}/{d}/{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
+
+	if y == '2023':
+		prod_series = 'L2A_N0500'
+	else:
+		prod_series = 'L2A'
+
+	band_regex = f"eodata/Sentinel-2/MSI/{prod_series}/{y}/{m}/{d}/{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
+
 	path = glob.glob(band_regex,root_dir=data_dir)
 	if len(path) == 0:
 		print(f"File {band_regex} not found.")
@@ -171,7 +178,14 @@ def get_remote_band_path(s2_id:str) -> str:
 	y = date[0:4]
 	m = date[4:6]
 	d = date[6:8]
-	band_regex = f"eodata/Sentinel-2/MSI/L2A/{y}/{m}/{d}/{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
+
+	if y == '2023':
+		prod_series = 'L2A_N0500'
+	else:
+		prod_series = 'L2A'
+
+	band_regex = f"eodata/Sentinel-2/MSI/{prod_series}/{y}/{m}/{d}/{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
+
 	return band_regex
 
 
@@ -195,15 +209,16 @@ if __name__ == '__main__':
 	# FIND UNIQUE TILES
 	# assume running inside s2-health-preprocessing/source/
 	with open('../other/search_results_2023.tsv','r') as fp:
+	# with open('../other/search_results_2023_subset.tsv','r') as fp:
 		s2_ids = [l.split('\t')[0] for l in fp.readlines()]
 	mgrs_tiles = [s.split('_')[5] for s in s2_ids]
 	unique_mgrs,first_index = np.unique(mgrs_tiles,return_index=True)
 	unique_ids = np.array(s2_ids)[first_index]
 	print(f"{len(mgrs_tiles)} Products. {len(unique_ids)} unique MGRS tiles.")
-	# 281 tiles,1318 products,05/15--08/15*
+	# 281? tiles,1318 products,05/15--08/15*
 
 
-	# IF TRUE, TRANSFER PRODUCTS CORRESPONDING TO UNIQUE TILE IDS
+	# IF TRUE, TRANSFER 1 BAND FOR EACH UNIQUE MGRS TILE
 	if args.download:
 		remote_paths = [get_remote_band_path(s) for s in unique_ids]
 
@@ -217,7 +232,10 @@ if __name__ == '__main__':
 			fp.write("\n".join(remote_paths))
 
 		#run rclone download
-		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/unique_tile_files.txt","--stats","10s"])
+		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/unique_tile_files.txt","--stats","5s"])
+
+		# clean up
+		os.remove("../other/unique_tile_files.txt")
 
 
 	# LOAD ALL POLYGONS
