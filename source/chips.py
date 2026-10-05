@@ -39,6 +39,7 @@ N_PROC = 8
 # BANDS
 BANDS = ["B01","B02","B03","B04","B05","B06","B07","B11","B12","B8A"]
 
+# PRE-TRAIN LIMITS? NOT ATM
 URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
 
 
@@ -276,8 +277,9 @@ def get_windows(borders):
 	return windows
 
 
-def copy_single_file(src,dst):
-	shutil.copy2(src,dst)
+def copy_single_file(pair):
+	src,dst = pair
+	return shutil.copy2(src,dst)
 
 
 def copy_threaded(file_queue,dest_dir):
@@ -285,9 +287,10 @@ def copy_threaded(file_queue,dest_dir):
 	# List of tuples containing (source_path, destination_path)
 	file_pairs = list(zip(file_queue,[dest_dir]*len(file_queue)))
 
-	# Copy files simultaneously using 4 worker threads
+	# Copy files simultaneously using N_PROC worker threads
+	# list() consumes results so worker exceptions are raised here
 	with ThreadPoolExecutor(max_workers=N_PROC) as executor:
-		executor.map(copy_single_file, file_pairs)
+		return list(executor.map(copy_single_file, file_pairs))
 
 
 def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
@@ -312,6 +315,9 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 		zero_mask   = band_array == 0
 		high_cutoff = int(np.percentile(band_array[~zero_mask],99))
 		low_cutoff  = int(np.percentile(band_array[~zero_mask],1)) #This might have to be lower?
+		if high_cutoff == low_cutoff:
+			print(f"CONSTANT BAND ARRAY in {reader.files[0]} -- SKIPPING.")
+			return
 		band_array  = np.clip(band_array,low_cutoff,high_cutoff)
 		band_array  = np.round((band_array-low_cutoff)/(high_cutoff-low_cutoff)*254+1).astype(np.uint8)
 		band_array  = np.where(zero_mask,0,band_array)
@@ -319,7 +325,10 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	bands = np.array(bands)
 
 	# SET WINDOWS
-	s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
+	# range 10m = 10980
+	# range 20m = 5490 --> lastindex = N - 1 - BORDER = 5489-246 = 5243 = 5489 - 246
+	# s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
+	s2_borders = {'top': 246, 'bottom': 5243, 'left': 246, 'right': 5243}
 	s2_windows = get_strided_windows(s2_borders)
 
 	# SPLIT WINDOWS INTO WORKER SECTIONS
@@ -363,13 +372,13 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 
 		# LOAD (ONLY WINDOW SECTION) LABEL & FEATURES
 		lbl_array = lbl_rdr.read(1,window=w)
-		ftr_array = ftr_rdr.read([1,2,3,4],window=w)
+		ftr_array = ftr_rdr.read([1,2,3,4],window=w) #this flushes with proc exit I suppose..
 
 		# IF LABEL NO DATA -- SKIP CHIP 
 		if (lbl_array == 0).any():
 			continue
 
-		# CHECK PROPORTION OF RUCA CODE==10
+		# CHECK PROPORTION OF RUCA CODE==10 -- No
 		# n_10 = (ftr_array[0]==10).sum()
 		# if n_10 > URBAN_THRESHOLD:
 			# continue
@@ -379,13 +388,12 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 		if (b_array == 0).any():
 			continue
 
-		# for band_arr in band_arrays:
-			# arr = band_arr[w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		# SLICE 
 		arr = band_arrays[:,w.row_off:w.row_off+CHIP_SIZE,w.col_off:w.col_off+CHIP_SIZE]
 
 		# GOOD -- SAVE BANDS
 		row,col = rowcol
-		outfile = f"{base_id}_{row:02}_{col:02}_rgb.tif"
+		outfile = f"{base_id}_{row.zfill(2)}_{col.zfill(2)}_rgb.tif"
 		tiff.imwrite(
 			outfile,
 			arr,
@@ -393,13 +401,13 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 		)
 
 		# SAVE LABEL
-		outfile = f'{base_id}_{row:02}_{col:02}_lbl.tif'
+		outfile = f'{base_id}_{row.zfill(2)}_{col.zfill(2)}_lbl.tif'
 		# img = Image.fromarray(lbl_array)
 		# img.save(outfile)
-		tiif.imwrite(
+		tiff.imwrite(
 			outfile,
 			lbl_array,
-			photometric="miniisblack"
+			photometric="minisblack"
 		)
 
 		# SAVE FEATURES
@@ -408,7 +416,7 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 			"height": CHIP_SIZE,
 			"width": CHIP_SIZE	
 		})
-		outfile = f'{ftr_dir}_{row:02}_{col:02}_ftr.tif'
+		outfile = f'{ftr_dir}_{row.zfill(2)}_{col.zfill(2)}_ftr.tif'
 		with rio.open(outfile,"w",**ftr_meta) as dst:
 			dst.write(ftr_array)
 
@@ -505,7 +513,7 @@ if __name__ == '__main__':
 	for i in range(N_chunks):
 		chunk_queue.append(s2_good_products[i*chunk_size:i*chunk_size+chunk_size])
 	if remainder != 0:
-		chunk_queue.append(s2_good_products[N_chunks*100:])
+		chunk_queue.append(s2_good_products[N_chunks*chunk_size:])
 
 	########## PROCESS  #######################
 	for chunk in chunk_queue:
@@ -544,6 +552,7 @@ if __name__ == '__main__':
 
 			# PATHS & READERS
 			local_b2_path = product.split('/')[-1]
+			band_readers  = []
 
 			for b in BANDS:
 				local_band_path = local_b2_path.replace("_B02_",f"_{b}_")
@@ -553,7 +562,11 @@ if __name__ == '__main__':
 			feature_path = f"{WORK_DIR}/{tiles_in_chunk[i]}_features.tif"
 
 			# CHIP
-			chip_image(band_readers,label_path,feature_path,chip_base_paths[i],i,len(chunk))
+			try:
+				chip_image(band_readers,label_path,feature_path,chip_base_paths[i],i,len(chunk))
+			finally:
+				for reader in band_readers:
+					reader.close()
 
 
 		########## DELETE FILES ############
