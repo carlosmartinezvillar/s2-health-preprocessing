@@ -518,7 +518,7 @@ if __name__ == '__main__':
 	########## PROCESS  #######################
 	for i,chunk in enumerate(chunk_queue):
 
-		printf(f"Chunk {i+1}/{len(chunk_queue)}")
+		print(f"Chunk {i+1}/{len(chunk_queue)}")
 
 		chip_base_paths = []
 		tiles_in_chunk  = []
@@ -539,7 +539,7 @@ if __name__ == '__main__':
 			chip_base_paths.append(f"{CHIP_DIR}/{tile}_{date}_{orbit}")
 			tiles_in_chunk.append(tile)
 
-		printf(f"Copying {len(chunk)} .jp2 band files in chunk...")
+		print(f"Copying {len(chunk)} .jp2 band files in chunk...")
 		copy_threaded(copy_band_queue,WORK_DIR)
 
 		# COPY ONLY NECESSARY LABELS
@@ -548,7 +548,7 @@ if __name__ == '__main__':
 			copy_mask_queue.append(f"{LABEL_DIR}/{t}_diabetes.tif")
 			copy_mask_queue.append(f"{LABEL_DIR}/{t}_features.tif")
 
-		printf(f"Copying {len(copy_mask_queue)} label+features in chunk.")
+		print(f"Copying {len(copy_mask_queue)} label+features in chunk.")
 		copy_threaded(copy_mask_queue,WORK_DIR)
 
 		########## CHIP ####################
