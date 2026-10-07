@@ -15,6 +15,7 @@ import glob
 import os
 import geopandas as gpd
 from shapely.geometry import box
+from shapely import wkt
 import rasterio
 from rasterio.features import rasterize
 import numpy as np
@@ -83,7 +84,7 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> N
 
 
 	###################################
-	# RASTERIZE LABEL (1 BAND)
+	# RASTERIZE LABEL (1 BAND) -- VALUES SAVED AS 0-999
 	###################################
 	label_shapes = [
 		(g,v) for g,v in zip(projected_polygons.geometry,projected_polygons['Data_Value'])
@@ -112,7 +113,7 @@ def process_tile(s2_path:str,master_polygons:gpd.GeoDataFrame,data_dir:str) -> N
 
 
 	###################################
-	# RASTERIZE FEATURES (4 BANDS)
+	# RASTERIZE FEATURES (4 BANDS) -- SAVED AS [0-10,0-8000,0-65536]
 	###################################
 	cols_to_burn        = ["PrimaryRUC","Population","LandArea"]
 	rasterized_features = np.zeros((4,rasterized_label.shape[0],rasterized_label.shape[1]),dtype=np.uint16)
@@ -206,16 +207,27 @@ if __name__ == '__main__':
 	assert os.path.isdir(args.data_dir), f"Data dir {args.data_dir} not found."
 	os.makedirs(f"{args.data_dir}/masks", exist_ok=True)
 
-	# FIND UNIQUE TILES
+	# FIND UNIQUE TILES -- KEEP THE PRODUCT WITH THE LARGEST FOOTPRINT PER MGRS TILE
+	# (swath-edge products only cover part of the tile)
 	# assume running inside s2-health-preprocessing/source/
-	with open('../other/search_results_2023.tsv','r') as fp:
-	# with open('../other/search_results_2023_subset.tsv','r') as fp:
-		s2_ids = [l.split('\t')[0] for l in fp.readlines()]
+	with open('../other/search_results_geometries_2023.tsv','r') as fp:
+		lines = fp.readlines()
+	s2_ids     = [l.split('\t')[0] for l in lines]
+	s2_geoms   = [wkt.loads(l.split('\t')[1].split(';')[1].strip().rstrip("'")) for l in lines]
 	mgrs_tiles = [s.split('_')[5] for s in s2_ids]
-	unique_mgrs,first_index = np.unique(mgrs_tiles,return_index=True)
-	unique_ids = np.array(s2_ids)[first_index]
+
+	# SELECT TILE POLYGONS BY LARGEST FOOTPRINT
+	products = gpd.GeoDataFrame({"s2_id": s2_ids, "tile": mgrs_tiles}, geometry=s2_geoms, crs="EPSG:4326")
+	products["area"] = products.to_crs("EPSG:5070").area #equal-area CRS
+	products = products.sort_values(["tile","area","s2_id"], ascending=[True,False,True])
+	unique_ids = products.groupby("tile").head(1)["s2_id"].to_numpy()
 	print(f"{len(mgrs_tiles)} Products. {len(unique_ids)} unique MGRS tiles.")
-	# 281? tiles,1318 products,05/15--08/15*
+	# 280 tiles,1318 products,05/15--08/15
+
+	# SAVE SELECTION -- chips.py reads this to chip the same products
+	with open('../other/selected_products.txt','w') as fp:
+		fp.write('\n'.join(unique_ids) + '\n')
+	print(f"Selected products written to ../other/selected_products.txt")
 
 
 	# IF TRUE, TRANSFER 1 BAND FOR EACH UNIQUE MGRS TILE
@@ -228,14 +240,14 @@ if __name__ == '__main__':
 		# 	sp.run(["cp",path,args.data_dir]) #<--- need to add parent dir structure
 
 		# S3/RCLONE
-		with open("../other/unique_tile_files.txt",'w') as fp:
+		with open("../other/selected_products_files.txt",'w') as fp:
 			fp.write("\n".join(remote_paths))
 
 		#run rclone download
-		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/unique_tile_files.txt","--stats","5s"])
+		sp.run(["rclone","copy",REMOTE_PATH,args.data_dir,"--include-from","../other/selected_products_files.txt","--stats","5s"])
 
 		# clean up
-		os.remove("../other/unique_tile_files.txt")
+		os.remove("../other/selected_products_files.txt")
 
 
 	# LOAD ALL POLYGONS

@@ -61,6 +61,33 @@ def get_dynamicworld_id(s2_id: str) -> str:
 	return gee_id
 
 
+def get_local_band_path(s2_id:str,data_dir:str) -> str:
+	'''
+	B02 (R20m) path of a .SAFE product, relative to data_dir. None if not found.
+	Same as in rasterize_polygons.py.
+	'''
+	date = s2_id.split('_')[2]
+	y = date[0:4]
+	m = date[4:6]
+	d = date[6:8]
+
+	if y == '2023':
+		prod_series = 'L2A_N0500'
+	else:
+		prod_series = 'L2A'
+
+	band_regex = f"eodata/Sentinel-2/MSI/{prod_series}/{y}/{m}/{d}/{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
+
+	path = glob.glob(band_regex,root_dir=data_dir)
+	if len(path) == 0:
+		print(f"File {band_regex} not found.")
+		return None
+	if len(path) > 1:
+		print(f"Regex {band_regex} has multiple matches.")
+		return None
+	return path[0]
+
+
 ####################################################################################################
 # RASTER PROCESSING
 ####################################################################################################
@@ -414,7 +441,8 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 		ftr_meta = ftr_rdr.meta.copy()
 		ftr_meta.update({
 			"height": CHIP_SIZE,
-			"width": CHIP_SIZE	
+			"width": CHIP_SIZE,
+			"transform": rio.windows.transform(w,ftr_rdr.transform) #chip's own origin, not the tile's
 		})
 		outfile = f'{ftr_dir}_{row.zfill(2)}_{col.zfill(2)}_ftr.tif'
 		with rio.open(outfile,"w",**ftr_meta) as dst:
@@ -447,6 +475,8 @@ if __name__ == '__main__':
 		help="Source directory for raw Sentinel-2 products.")
 	parser.add_argument('--label-dir',default=None,
 		help="Source directory for mask rasters.")
+	parser.add_argument('--selected-products',default='../other/selected_products.txt',
+		help="List of S2 product ids (one per tile) written by rasterize_polygons.py.")
 
 
 	########## SET ARGS ##########
@@ -455,6 +485,7 @@ if __name__ == '__main__':
 	CHIP_DIR  = args.chip_dir
 	S2_DIR    = args.s2_dir 
 	LABEL_DIR = args.label_dir
+	SELECTED_PRODUCTS = args.selected_products
 
 	if not os.path.isdir(WORK_DIR):
 		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
@@ -487,23 +518,34 @@ if __name__ == '__main__':
 	print(f"S2_DIR set to:    {S2_DIR}")
 	print(f"LABEL_DIR set to: {LABEL_DIR}")
 
+	if not os.path.isfile(SELECTED_PRODUCTS):
+		print(f"SELECTED_PRODUCTS {SELECTED_PRODUCTS} not found. Run rasterize_polygons.py first. EXIT(1).")
+		sys.exit(1)
+
 
 	########## GET UNIQUE TILES FROM LABEL DIR ###############
 	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
 	label_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECTION ##########
-	band2_regex = "eodata/Sentinel-2/MSI/L2A_N0500/*/*/*/*.SAFE/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2" #1637
-	s2_tiffs         = glob.glob(band2_regex,root_dir=S2_DIR)
-	s2_tiles         = [s.split('/')[-1].split('_')[0] for s in s2_tiffs]
+	# one product per tile (largest footprint), as selected by rasterize_polygons.py
+	with open(SELECTED_PRODUCTS,'r') as fp:
+		selected_ids = [l.strip() for l in fp.readlines() if l.strip()]
+	selected_ids = [s for s in selected_ids if s.split('_')[5] in label_tiles]
 
-	#limit to a single product per tile
-	unique_s2_tiles, unique_s2_tiles_idx  = np.unique(s2_tiles,return_index=True)
-	unique_s2_tiffs = np.array(s2_tiffs)[unique_s2_tiles_idx]
+	s2_good_products = selected_ids
+	# missing_products = []
+	# for s2_id in selected_ids:
+	# 	b2_path = get_local_band_path(s2_id,S2_DIR)
+	# 	if b2_path is None:
+	# 		missing_products.append(s2_id)
+	# 	else:
+	# 		s2_good_products.append(b2_path)
 
-	intersection     = np.isin(unique_s2_tiles,label_tiles)
-	s2_good_products = unique_s2_tiffs[intersection]
-	print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
+	# if len(missing_products) > 0:
+	# 	print(f"MISSING {len(missing_products)} SELECTED PRODUCTS IN S2_DIR. EXIT(1).")
+	# 	sys.exit(1)
+	# print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
 
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50

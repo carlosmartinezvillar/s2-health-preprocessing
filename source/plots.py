@@ -31,31 +31,36 @@ def plot_tiles_and_tracts():
 	territories = ['PR','AS','VI','MP','GU','AK','HI']
 	contiguous  = states[~states['STUSPS'].isin(territories)]
 
-	# 1.2 LOAD SENTINEL TILES USED --- load tsv file & clean.
-	with open(S2_PRODUCTS_GEOM,'r') as fp:
-		lines = fp.readlines()
-	safe_ids  = [l.split('\t')[0] for l in lines]
-	tile_geom = [l.split('\t')[1].split(';')[1].rstrip("'") for l in lines]
-
 	# 1.3 LOAD CENSUS TRACTS
 	all_tracts = gpd.read_file(TRACTS_GEOM)
 
 	# ---------------------------------------------------------------------------
 	# 2. Extract MGRS tile ID/Set to actual tiles used (in labels)
 	# ---------------------------------------------------------------------------
-	mgrs = [s.split("_")[5] for s in safe_ids]
-	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
-	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
-	
-	# with open(LABEL_MASK_LIST,'r') as fp:
-		# label_tiles = [line.split('_')[0] for line in fp.readlines()]
- 
-	# good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
-	# good_mgrs      = unique_mgrs[good_mgrs_mask]
-	# good_tile_geom = unique_tile_geom[good_mgrs_mask]
 
-	# bad_mgrs      = unique_mgrs[~good_mgrs_mask]
-	# bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
+	# 1.2 LOAD SENTINEL TILES USED --- load tsv file & clean.
+	with open(S2_PRODUCTS_GEOM,'r') as fp:
+		lines = fp.readlines()
+	safe_ids  = [l.split('\t')[0] for l in lines]
+	tile_geom = [l.split('\t')[1].split(';')[1].rstrip("'") for l in lines]
+
+
+	with open(S2_PRODUCTS_GEOM,'r') as fp:
+		lines = fp.readlines()
+	safe_ids  = [l.split('\t')[0] for l in lines]
+	tile_geom = [wkt.loads(l.split('\t')[1].split(';')[1].strip().rstrip("'")) for l in lines]
+	mgrs      = [s.split('_')[5] for s in safe_ids]
+
+	products = gpd.GeoDataFrame({"safe_ids": safe_ids, "tile": mgrs}, geometry=tile_geom, crs="EPSG:4326")
+	products["area"] = products.to_crs("EPSG:5070").area #equal-area CRS
+	# largest footprint first; ties broken by id so the selection is reproducible
+	products = products.sort_values(["tile","area","safe_ids"], ascending=[True,False,True])
+
+	# index labels survive the sort, so they are positions into safe_ids/mgrs/tile_geom
+	unique_mgrs_idx  = products.groupby("tile").head(1).index.to_numpy()
+	unique_mgrs      = np.array(mgrs)[unique_mgrs_idx]
+	unique_tile_geom = products.loc[unique_mgrs_idx, "geometry"].to_numpy()
+	print(f"{len(mgrs)} Products. {len(unique_mgrs_idx)} unique MGRS tiles.")
 
 	# DON'T FILTER
 	good_mgrs      = unique_mgrs
@@ -65,22 +70,13 @@ def plot_tiles_and_tracts():
 	# 3. Parse WKT geometries
 	#    Raw format: geography'SRID=4326;POLYGON ((...))' — strip the prefix.
 	# ---------------------------------------------------------------------------
-	good_tile_wkts = [wkt.loads(s) for s in good_tile_geom]
+	# tile_geom is already parsed above, so no wkt.loads here
 	tile_df = pd.DataFrame({"tile": good_mgrs})
 	tile_gdf = gpd.GeoDataFrame(
 	    tile_df,
-	    geometry=good_tile_wkts,
+	    geometry=good_tile_geom,
 	    crs="EPSG:4326"
 	)
-
-	# bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
-	# bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
-	# bad_tile_gdf  = gpd.GeoDataFrame(
-	#     bad_tile_df,
-	#     geometry=bad_tile_wkts,
-	#     crs="EPSG:4326"
-	# )
-	# bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
 
 	# ---------------------------------------------------------------------------
 	# 4. PROJECT TO COMMON CRS
@@ -99,6 +95,15 @@ def plot_tiles_and_tracts():
 	all_tracts.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.1)
 	tile_gdf.plot(ax=ax,color='blue',alpha=0.1,edgecolor='blue',linewidth=1.0)
 	# bad_tile_gdf.plot(ax=ax,color='red',alpha=0.1,edgecolor='red',linewidth=1.0)
+
+	# label each tile polygon with its MGRS tile id (at the polygon's centroid)
+	for tile_id, centroid in zip(tile_gdf['tile'], tile_gdf.geometry.centroid):
+		# skip tiles whose geometry projected to nothing/NaN (centroid has no x,y)
+		if centroid.is_empty or not np.isfinite([centroid.x, centroid.y]).all():
+			print(f"Skipping label for tile {tile_id}: no valid centroid")
+			continue
+		ax.annotate(tile_id, xy=(centroid.x, centroid.y), ha='center', va='center',
+		            fontsize=8, color='darkblue', annotation_clip=True)
 
 	# zoom in
 	xmin, ymin, xmax, ymax = contiguous.total_bounds
@@ -143,16 +148,6 @@ def plot_tiles():
 	unique_mgrs,unique_mgrs_idx = np.unique(mgrs,return_index=True)
 	unique_tile_geom = np.array(tile_geom)[unique_mgrs_idx]
 	
-	# with open(LABEL_MASK_LIST,'r') as fp:
-	# 	label_tiles = [line.split('_')[0] for line in fp.readlines()]
- 
-	# good_mgrs_mask = np.isin(unique_mgrs,label_tiles)
-	# good_mgrs      = unique_mgrs[good_mgrs_mask]
-	# good_tile_geom = unique_tile_geom[good_mgrs_mask]
-
-	# bad_mgrs      = unique_mgrs[~good_mgrs_mask]
-	# bad_tile_geom = unique_tile_geom[~good_mgrs_mask]
-
 	good_mgrs      = unique_mgrs
 	good_tile_geom = unique_tile_geom
 
@@ -167,15 +162,6 @@ def plot_tiles():
 	    geometry=good_tile_wkts,
 	    crs="EPSG:4326"
 	)
-
-	# bad_tile_wkts = [wkt.loads(s) for s in bad_tile_geom]
-	# bad_tile_df   = pd.DataFrame({"tile": bad_mgrs})
-	# bad_tile_gdf  = gpd.GeoDataFrame(
-	#     bad_tile_df,
-	#     geometry=bad_tile_wkts,
-	#     crs="EPSG:4326"
-	# )
-	# bad_tile_gdf['geometry'] = bad_tile_gdf['geometry'].make_valid()
 
 	# ---------------------------------------------------------------------------
 	# 4. PROJECT TO COMMON CRS
@@ -372,15 +358,15 @@ def plot_features_chip(path):
 
 if __name__ == "__main__":
 	# plot_label('../masks/T13SGB_diabetes.tif')
-	# plot_tiles_and_tracts()
+	plot_tiles_and_tracts()
 	# plot_tiles()
 	# plot_tracts()
 
 	# PLOT ENTIRE TILE
-	data_dir = '../../../cache'
-	a_label = sorted(glob.glob("masks/T*_diabetes.tif",root_dir=f'{data_dir}'))[0]
-	plot_label(f'{data_dir}/{a_label}')
-	plot_features(f'{data_dir}/{a_label.replace("diabetes","features")}')
+	# data_dir = '../../../cache'
+	# a_label = sorted(glob.glob("masks/T*_diabetes.tif",root_dir=f'{data_dir}'))[0]
+	# plot_label(f'{data_dir}/{a_label}')
+	# plot_features(f'{data_dir}/{a_label.replace("diabetes","features")}')
 
 	# PLOT CHIPS
 	# plot_label('../../health_chips/chips/T15TUH_20250619T165849_R069_39_42_lbl.tif')
