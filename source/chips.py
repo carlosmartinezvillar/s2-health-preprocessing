@@ -107,7 +107,7 @@ def copy_dir_threaded(safe_dir_queue,dest_dir):
 	dest_safe = [os.path.join(dest_dir,os.path.basename(s)) for s in safe_dir_queue]
 	pairs = list(zip(safe_dir_queue,dest_safe))
 
-	with ThreadPoolExecutor(max_worker=N_PROC) as executor:
+	with ThreadPoolExecutor(max_workers=N_PROC) as executor:
 		return list(executor.map(copy_safe_folder,pairs))
 
 
