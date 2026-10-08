@@ -552,7 +552,7 @@ if __name__ == '__main__':
 	with open('../other/search_results_2023.tsv','r') as fp:
 		lines = fp.readlines()
 	safe_folder_ids = [l.split('\t')[0] for l in lines]
-	band2_paths     = [get_local_band_path(s,CHIP_DIR) for s in safe_folder_ids] 
+	band2_paths     = [get_local_band_path(s,S2_DIR) for s in safe_folder_ids] 
 
 	sys.exit(1)
 
