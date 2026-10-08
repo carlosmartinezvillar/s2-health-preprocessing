@@ -18,6 +18,7 @@ import subprocess as sp
 
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import tifffile as tiff
 
 __spec__ = None
@@ -475,8 +476,8 @@ if __name__ == '__main__':
 		help="Source directory for raw Sentinel-2 products.")
 	parser.add_argument('--label-dir',default=None,
 		help="Source directory for mask rasters.")
-	parser.add_argument('--selected-products',default='../other/selected_products.txt',
-		help="List of S2 product ids (one per tile) written by rasterize_polygons.py.")
+	# parser.add_argument('--selected-products',default='../other/selected_products.txt',
+		# help="List of S2 product ids (one per tile) written by rasterize_polygons.py.")
 
 
 	########## SET ARGS ##########
@@ -485,7 +486,7 @@ if __name__ == '__main__':
 	CHIP_DIR  = args.chip_dir
 	S2_DIR    = args.s2_dir 
 	LABEL_DIR = args.label_dir
-	SELECTED_PRODUCTS = args.selected_products
+	# SELECTED_PRODUCTS = args.selected_products
 
 	if not os.path.isdir(WORK_DIR):
 		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
@@ -518,9 +519,9 @@ if __name__ == '__main__':
 	print(f"S2_DIR set to:    {S2_DIR}")
 	print(f"LABEL_DIR set to: {LABEL_DIR}")
 
-	if not os.path.isfile(SELECTED_PRODUCTS):
-		print(f"SELECTED_PRODUCTS {SELECTED_PRODUCTS} not found. Run rasterize_polygons.py first. EXIT(1).")
-		sys.exit(1)
+	# if not os.path.isfile(SELECTED_PRODUCTS):
+	# 	print(f"SELECTED_PRODUCTS {SELECTED_PRODUCTS} not found. Run rasterize_polygons.py first. EXIT(1).")
+	# 	sys.exit(1)
 
 
 	########## GET UNIQUE TILES FROM LABEL DIR ###############
@@ -552,6 +553,8 @@ if __name__ == '__main__':
 		lines = fp.readlines()
 	safe_folder_ids = [l.split('\t')[0] for l in lines]
 	band2_paths     = [get_local_band_path(s,CHIP_DIR) for s in safe_folder_ids] 
+
+	sys.exit(1)
 
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50
