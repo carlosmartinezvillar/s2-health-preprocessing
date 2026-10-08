@@ -90,11 +90,11 @@ def get_local_band_path(s2_id:str,data_dir:str) -> str:
 
 
 def get_safe_full_path(safe_id):
-	date = s2_id.split('_')[2]
+	date = safe_id.split('_')[2]
 	y = date[0:4]
 	m = date[4:6]
 	d = date[6:8]
-	return f"eodata/Sentinel-2/MSI/L2A_N0500/{y}/{m}/{d}/{s2_id}"
+	return f"eodata/Sentinel-2/MSI/L2A_N0500/{y}/{m}/{d}/{safe_id}"
 
 
 def copy_safe_folder(pair):
