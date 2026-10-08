@@ -526,7 +526,8 @@ if __name__ == '__main__':
 			orbit = safe_id.split('_')[4]
 			chip_base_paths.append(f"{CHIP_DIR}/{tile}_{date}_{orbit}")
 			tiles_in_chunk.append(tile)
-			copy_band_queue.append(get_safe_full_path(safe_id))
+			copy_from = f"{S2_DIR}/{get_safe_full_path(safe_id)}"
+			copy_band_queue.append(copy_from)
 
 		print(f"Copying {len(chunk)} .jp2 band files in chunk...")
 		# copy_threaded(copy_band_queue,WORK_DIR)
