@@ -467,7 +467,7 @@ if __name__ == '__main__':
 		description="Large Sentinel-2 and labels to 256x256 images.")
 
 	# PATHS
-	parser.add_argument('--work-dir',default='/cache',
+	parser.add_argument('--work-dir',default=None,
 		help="Temporary directory to load/offload data.")
 	parser.add_argument('--chip-dir',default=None,
 		help="Output directory for resulting chips")
@@ -524,16 +524,16 @@ if __name__ == '__main__':
 
 
 	########## GET UNIQUE TILES FROM LABEL DIR ###############
-	label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
-	label_tiles = [s.split('_')[0] for s in label_tiffs]
+	# label_tiffs  = glob.glob('*.tif',root_dir=LABEL_DIR) #arg/masks
+	# label_tiles = [s.split('_')[0] for s in label_tiffs]
 
 	########## GET PRODUCT INTERSECTION ##########
 	# one product per tile (largest footprint), as selected by rasterize_polygons.py
-	with open(SELECTED_PRODUCTS,'r') as fp:
-		selected_ids = [l.strip() for l in fp.readlines() if l.strip()]
-	selected_ids = [s for s in selected_ids if s.split('_')[5] in label_tiles]
+	# with open(SELECTED_PRODUCTS,'r') as fp:
+		# selected_ids = [l.strip() for l in fp.readlines() if l.strip()]
+	# selected_ids = [s for s in selected_ids if s.split('_')[5] in label_tiles]
 
-	s2_good_products = selected_ids
+	# s2_good_products = selected_ids
 	# missing_products = []
 	# for s2_id in selected_ids:
 	# 	b2_path = get_local_band_path(s2_id,S2_DIR)
@@ -547,15 +547,21 @@ if __name__ == '__main__':
 	# 	sys.exit(1)
 	# print(f"PRODUCTS MATCHING LABELS: {len(s2_good_products)}.")
 
+	########## GO THRU ALL PRODUCTS ##########
+	with open('../other/search_results_2023.tsv','r') as fp:
+		lines = fp.readlines()
+	safe_folder_ids = [l.split('\t')[0] for l in lines]
+	band2_paths     = [get_local_band_path(s,CHIP_DIR) for s in safe_folder_ids] 
+
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50
-	N_chunks    = len(s2_good_products) // chunk_size
-	remainder   = len(s2_good_products) % chunk_size
+	N_chunks    = len(band2_paths) // chunk_size
+	remainder   = len(band2_paths) % chunk_size
 	chunk_queue = []
 	for i in range(N_chunks):
-		chunk_queue.append(s2_good_products[i*chunk_size:i*chunk_size+chunk_size])
+		chunk_queue.append(band2_paths[i*chunk_size:i*chunk_size+chunk_size])
 	if remainder != 0:
-		chunk_queue.append(s2_good_products[N_chunks*chunk_size:])
+		chunk_queue.append(band2_paths[N_chunks*chunk_size:])
 
 	########## PROCESS  #######################
 	for i,chunk in enumerate(chunk_queue):
