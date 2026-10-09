@@ -12,4 +12,4 @@ Preprocessing of Sentinel-2 images and extraction of visual features for health-
 
 * `rasterize_polygons.py`: Rasterizes/burns geometries outputted by `merge_polygons.py`. Census tract polygons are burned to raster images matching the 10-meter resolution of Sentinel-2 products. Temporal coverage of the Sentinel-2 products in our area-of-interest results in multiple Sentinel-2 images per MGRS tile. To avoid unnecessary overhead, a single raster is computed for each individual MGRS tile instead of individual S2 products. Pixel values inside each tract polygon are set to 'Data_Value', the diabetes crude prevalence value (estimated percentage over 1000 people) in `../shapes/filtered_diabetes.csv`.
 
-* `create_chips.py`: Creates input-label chip pairs using Sentinel-2 images and rasterized census tract polygons created by `rasterize_polygons.py`. Output chip size is 224x224.
+* `create_chips.py`: Creates input-label chip pairs using Sentinel-2 images and rasterized census tract polygons created by `rasterize_polygons.py`. Output chip size is 256x256.
