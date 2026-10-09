@@ -24,11 +24,10 @@ import tifffile as tiff
 __spec__ = None
 
 #DIRS SET HERE BECAUSE THREAD ACCESS
-WORK_DIR  = None #FAST VOLUME 100 S2 TIFFs: ~32GB, 100 MASK TIFFs: ~100GB
-LABEL_DIR = None #SLOW VOLUME ~277GB
+WORK_DIR  = None #FAST VOLUME
+LABEL_DIR = None #SLOW VOLUME
 CHIP_DIR  = None #FAST VOLUME (inside working dir)
-S2_DIR    = None #SLOW VOLUME ~338GB
-# CHIP_REMOTE = "nrp:diabetes-chips"
+S2_DIR    = None #SLOW VOLUME
 
 # PIXEL LIMITS
 CHIP_SIZE = 256
@@ -40,8 +39,8 @@ N_PROC = 8
 # BANDS
 BANDS = ["B01","B02","B03","B04","B05","B06","B07","B8A","B11","B12",]
 
-# PRE-TRAIN LIMITS? NOT ATM
-URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
+# PRE-TRAIN LIMITS? -- NOT ATM
+# URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
 
 
 ####################################################################################################
@@ -67,16 +66,6 @@ def get_local_band_path(s2_id:str,data_dir:str) -> str:
 	B02 (R20m) path of a .SAFE product, relative to data_dir. None if not found.
 	Same as in rasterize_polygons.py.
 	'''
-	date = s2_id.split('_')[2]
-	y = date[0:4]
-	m = date[4:6]
-	d = date[6:8]
-
-	if y == '2023':
-		prod_series = 'L2A_N0500'
-	else:
-		prod_series = 'L2A'
-
 	band_regex = f"{s2_id}/GRANULE/*/IMG_DATA/R20m/*_B02_20m.jp2"
 
 	path = glob.glob(band_regex,root_dir=data_dir)
@@ -125,6 +114,7 @@ def copy_threaded(file_queue,dest_dir):
 	# list() consumes results so worker exceptions are raised here
 	with ThreadPoolExecutor(max_workers=N_PROC) as executor:
 		return list(executor.map(copy_single_file, file_pairs))
+
 ####################################################################################################
 # RASTER PROCESSING
 ####################################################################################################
@@ -436,9 +426,6 @@ if __name__ == '__main__':
 		help="Source directory for raw Sentinel-2 products.")
 	parser.add_argument('--label-dir',default=None,
 		help="Source directory for mask rasters.")
-	# parser.add_argument('--selected-products',default='../other/selected_products.txt',
-		# help="List of S2 product ids (one per tile) written by rasterize_polygons.py.")
-
 
 	########## SET ARGS ##########
 	args = parser.parse_args()
@@ -446,7 +433,6 @@ if __name__ == '__main__':
 	CHIP_DIR  = args.chip_dir
 	S2_DIR    = args.s2_dir 
 	LABEL_DIR = args.label_dir
-	# SELECTED_PRODUCTS = args.selected_products
 
 	if not os.path.isdir(WORK_DIR):
 		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
@@ -484,9 +470,9 @@ if __name__ == '__main__':
 	with open('../other/search_results_2023.tsv','r') as fp:
 		lines = fp.readlines()
 	safe_folder_ids = [l.split('\t')[0] for l in lines]
+
 	# band2_paths     = [get_local_band_path(s,S2_DIR) for s in safe_folder_ids]
 	# N_products = len(safe_folder_ids)
-
 	# with ThreadPoolExecutor(max_workers=4) as pool:
 		# band2_paths = list(pool.map(partial(get_local_band_path,data_dir=S2_DIR),safe_folder_ids))
 
