@@ -437,8 +437,7 @@ if __name__ == '__main__':
 	if not os.path.isdir(WORK_DIR):
 		print(f"WORK_DIR {WORK_DIR} not found. EXIT(1).")
 		sys.exit(1)
-	if WORK_DIR[-1] == '/':
-		WORK_DIR = WORK_DIR.rstrip('/')
+	WORK_DIR = WORK_DIR.rstrip('/')
 
 	if CHIP_DIR is None:
 		os.makedirs(WORK_DIR + '/chips',exist_ok=True)
@@ -451,14 +450,12 @@ if __name__ == '__main__':
 	if not os.path.isdir(S2_DIR):
 		print("S2_DIR not found. EXITING.")
 		sys.exit(1)
-	if S2_DIR[-1] == '/':
-		S2_DIR = S2_DIR.rstrip('/')
+	S2_DIR = S2_DIR.rstrip('/')
 
 	if not os.path.isdir(LABEL_DIR):
 		print("LABEL_DIR not found. EXITING.")
 		sys.exit(1)
-	if LABEL_DIR[-1] == '/':
-		LABEL_DIR = LABEL_DIR.rstrip('/')
+	LABEL_DIR = LABEL_DIR.rstrip('/')
 
 	print(f"WORK_DIR set to:  {WORK_DIR}")
 	print(f"CHIP_DIR set to:  {CHIP_DIR}")
