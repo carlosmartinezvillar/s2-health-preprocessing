@@ -314,7 +314,7 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 	# s2_windows = get_strided_windows(s2_borders)
 	s2_windows = check_windows(label_path,feature_path,get_strided_windows(s2_borders))
 	if len(s2_windows) == 0:
-		print(f"NO USEFUL WINDOWS -- SKIPPING.")
+		print(f"\tNO USEFUL WINDOWS -- SKIPPING.")
 		return
 
 	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
@@ -515,6 +515,17 @@ if __name__ == '__main__':
 	safe_folder_ids = [l.split('\t')[0] for l in lines]
 
 
+	tiles = [s.split('_')[5] for s in safe_folder_ids]
+	copy_mask_queue = []
+	for t in list(np.unique(tiles)):
+		copy_mask_queue.append(f"{LABEL_DIR}/{t}_diabetes.tif")
+		copy_mask_queue.append(f"{LABEL_DIR}/{t}_features.tif")
+
+	print(f"Copying all {len(copy_mask_queue)} labels to WORK_DIR...")
+	s0 = time.perf_counter()
+	copy_threaded(copy_mask_queue,WORK_DIR)
+	printf(f"{time.perf_counter()-s0:.2f} secs.")
+
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50
 	N_chunks    = len(safe_folder_ids) // chunk_size
@@ -549,19 +560,18 @@ if __name__ == '__main__':
 		copy_dir_threaded(copy_band_queue,WORK_DIR)
 
 		# COPY ONLY NECESSARY LABELS
-		copy_mask_queue = []
-		for t in list(np.unique(tiles_in_chunk)):
-			copy_mask_queue.append(f"{LABEL_DIR}/{t}_diabetes.tif")
-			copy_mask_queue.append(f"{LABEL_DIR}/{t}_features.tif")
+		# copy_mask_queue = []
+		# for t in list(np.unique(tiles_in_chunk)):
+			# copy_mask_queue.append(f"{LABEL_DIR}/{t}_diabetes.tif")
+			# copy_mask_queue.append(f"{LABEL_DIR}/{t}_features.tif")
 
-		print(f"Copying {len(copy_mask_queue)} label+features in chunk.")
-		copy_threaded(copy_mask_queue,WORK_DIR)
+		# print(f"Copying {len(copy_mask_queue)} label+features in chunk.")
+		# copy_threaded(copy_mask_queue,WORK_DIR)
 
 		########## CHIP ####################
 		for i,safe_id in enumerate(chunk):
 
 			# PATHS & READERS
-			# local_b2_path = product.split('/')[-1]
 			local_b2_path = get_local_band_path(safe_id,WORK_DIR) #<-- fix to return list/simpler
 			band_readers  = []
 
@@ -581,13 +591,12 @@ if __name__ == '__main__':
 
 
 		########## DELETE FILES ############
-		print("Deleting.tif files...")
-		for file_path in glob.glob(os.path.join(WORK_DIR, '*.tif')):
-		    os.remove(file_path)
-
 		print("Deleting .jp2 files...")
-		for file_path in glob.glob(os.path.join(WORK_DIR, '*.jp2')):
-			os.remove(file_path)
+		for safe_id in chunk:
+			shutil.rmtree(f"{WORK_DIR}/{safe_id}")
 
+	print("Deleting.tif files...")
+	for mask in copy_mask_queue:
+		os.remove(f"{WORK_DIR}/{os.path.basename(mask)}")
 
 	print("DONE.")
