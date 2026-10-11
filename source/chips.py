@@ -15,6 +15,8 @@ from PIL import Image
 import sys
 import argparse
 import subprocess as sp
+import random
+import zlib
 
 import shutil
 from concurrent.futures import ThreadPoolExecutor
@@ -39,8 +41,10 @@ N_PROC = 8
 # BANDS
 BANDS = ["B01","B02","B03","B04","B05","B06","B07","B8A","B11","B12",]
 
-# PRE-TRAIN LIMITS? -- NOT ATM
-# URBAN_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
+# PRE-TRAIN LIMITS
+SPARSE_THRESHOLD = CHIP_SIZE*CHIP_SIZE/2
+MIN_DENSITY = 6
+MAX_PER_TRACT = 3
 
 
 ####################################################################################################
@@ -271,11 +275,47 @@ def get_strided_windows(borders):
 	return windows
 
 
+def check_windows(label_path,feature_path,windows):
+
+	with rio.open(label_path) as src:
+		lbl = src.read(1)
+	with rio.open(feature_path) as src:
+		pop,area = src.read([2,3])
+
+	keep = []
+
+	for rowcol,w in windows:
+		rs = slice(w.row_off,w.row_off+CHIP_SIZE)
+		cs = slice(w.col_off,w.col_off+CHIP_SIZE)
+
+		if (lbl[rs,cs] == 0).any():
+			continue #empty label
+
+		p = pop[rs,cs].astype(np.float32)
+		a = area[rs,cs].astype(np.float32) / 10
+		dens = np.divide(p,a,out=np.full_like(p,np.inf),where=a > 0)
+		if (dens < MIN_DENSITY).sum() > SPARSE_THRESHOLD:
+			continue #low-density tract dominates chip
+
+		keep.append([rowcol,w])
+
+	return keep
+
+
 def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 
 	# STDOUT
 	print(f'[{index+1}/{N}] PROCESSING {base_id}')
 	start_time = time.time()
+
+	# SET WINDOWS
+	# range 20m = 5490 --> lastindex = N - 1 - BORDER = 5489-246 = 5243
+	s2_borders = {'top': 246, 'bottom': 5243, 'left': 246, 'right': 5243}
+	# s2_windows = get_strided_windows(s2_borders)
+	s2_windows = check_windows(label_path,feature_path,get_strided_windows(s2_borders))
+	if len(s2_windows) == 0:
+		print(f"NO USEFUL WINDOWS -- SKIPPING.")
+		return
 
 	# LOAD BAND ARRAYS, CLIP, & NORMALIZE
 	bands = []
@@ -302,49 +342,51 @@ def chip_image(s2_readers,label_path,feature_path,base_id,index,N):
 		bands.append(band_array)
 	bands = np.array(bands)
 
-	# SET WINDOWS
-	# range 10m = 10980
-	# range 20m = 5490 --> lastindex = N - 1 - BORDER = 5489-246 = 5243 = 5489 - 246
-	# s2_borders = {'top': 492, 'bottom': 10487, 'left': 492, 'right': 10487}
-	s2_borders = {'top': 246, 'bottom': 5243, 'left': 246, 'right': 5243}
-	s2_windows = get_strided_windows(s2_borders)
+
+	# SHUFFLE WINDOWS
+	tile = os.path.basename(base_id).split('_')[0]
+	random.Random(zlib.crc32(tile.encode())).shuffle(s2_windows) #same order for each product/date in tile
 
 	# SPLIT WINDOWS INTO WORKER SECTIONS
-	process_share = len(s2_windows) // N_PROC
-	leftover      = len(s2_windows) % N_PROC
-	start         = [i*process_share for i in range(N_PROC)]
-	stop          = [i*process_share+process_share for i in range(N_PROC)]
-	stop[-1]      += leftover
-	s2_window_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
+	# process_share = len(s2_windows) // N_PROC
+	# leftover      = len(s2_windows) % N_PROC
+	# start         = [i*process_share for i in range(N_PROC)]
+	# stop          = [i*process_share+process_share for i in range(N_PROC)]
+	# stop[-1]      += leftover
+	# s2_window_chunks = [s2_windows[s0:s1] for s0,s1 in zip(start,stop)]
+	n_workers = min(N_PROC,len(s2_windows))
+	s2_window_chunks = [s2_windows[i::n_workers] for i in range(n_workers)] #round-robin
+
+	tract_counts = mp.Array('i',65536) #band 4 id's stored as uint16
 
 	# THROW WORKERS AT WINDOW SECTIONS
-	# lock = mp.Lock() #lock to log stuff
 	processes = []
-	for i in range(N_PROC):
+	for i in range(n_workers):
 		p = mp.Process(
 			target=chip_image_worker,
-			args=(bands,label_path,feature_path,s2_window_chunks[i],base_id)
+			args=(bands,label_path,feature_path,s2_window_chunks[i],base_id,tract_counts)
 		)
 		p.start()
 		processes.append(p)
 
 	for p in processes:
-		p.join(timeout=60)
+		p.join()
+		if p.exitcode != 0:
+			print(f"WORKER FAILED (with exit code {p.exitcode})")
 
 	# STDOUT	
 	exec_time = time.time() - start_time
 	print(f"All workers done ({exec_time:.3f} secs). ")
 
 
-def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
+def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id,tract_counts):
 
 	# Distinct rio.DatasetReader for thread/race conditions
 	lbl_rdr = rio.open(label_path,'r',tiled=True) #1 band, uint16
-	ftr_rdr = rio.open(feature_path,'r',tiled=True) #3 bands, uint16
+	ftr_rdr = rio.open(feature_path,'r',tiled=True) #4 bands, uint16
 
 	ftr_dir = base_id.replace("chips","features")
-	# Log chip info?
-	# stats = []
+
 
 	for k,(rowcol,w) in enumerate(windows):
 
@@ -353,21 +395,34 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 		ftr_array = ftr_rdr.read([1,2,3,4],window=w) #this flushes with proc exit I suppose..
 
 		# IF LABEL NO DATA -- SKIP CHIP 
-		if (lbl_array == 0).any():
-			continue
+		# if (lbl_array == 0).any():
+		# 	continue
 
-		# CHECK PROPORTION OF RUCA CODE==10 -- No
-		# n_10 = (ftr_array[0]==10).sum()
-		# if n_10 > URBAN_THRESHOLD:
-			# continue
+		# # DROP CHIPS THAT ARE 'TOO' SPARSE
+		# pop  = ftr_array[1].astype(np.float32)
+		# area = ftr_array[2].astype(np.float32) / 10 #SCALING_FACTOR in rasterize_polygons.py
+		# dens = np.divide(pop,area,out=np.full_like(pop,np.inf),where=area > 0)		
+		# if (dens < MIN_DENSITY).sum() > SPARSE_THRESHOLD:
+		# 	continue
 
 		# LOAD BANDS/IF NO DATA IN BAND SKIP CHIP
-		b_array = band_arrays[0,w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
-		if (b_array == 0).any():
-			continue
+		# b_array = band_arrays[0,w.row_off:w.row_off+CHIP_SIZE, w.col_off:w.col_off+CHIP_SIZE]
+		# if (b_array == 0).any():
+			# continue
 
 		# SLICE 
 		arr = band_arrays[:,w.row_off:w.row_off+CHIP_SIZE,w.col_off:w.col_off+CHIP_SIZE]
+
+		# DROP CHIPS WITH NO DATA
+		if (arr == 0).any():
+			continue
+
+		# CAP CHIPS PER TRACT
+		tract = int(np.bincount(ftr_array[3].ravel()).argmax())
+		with tract_counts.get_lock():
+			if tract_counts[tract] >= MAX_PER_TRACT:
+				continue
+			tract_counts[tract] += 1
 
 		# GOOD -- SAVE BANDS
 		row,col = rowcol
@@ -399,15 +454,6 @@ def chip_image_worker(band_arrays,label_path,feature_path,windows,base_id):
 		with rio.open(outfile,"w",**ftr_meta) as dst:
 			dst.write(ftr_array)
 
-		# STATS/LOG?
-		# diabetes = lbl_array.mean() #or weighted mean.. something like that.
-		# stats.append(f'{outfile.split('/')[-1][:-8]}\t{diabetes}')
-
-	# LOG?
-	# lock.acquire()
-	# with open(f'{CHIP_DIR}/stats.txt','a') as fp:
-	# 	fp.write('\n'.join(stats))
-	# lock.release()
 
 
 if __name__ == '__main__':
@@ -468,10 +514,6 @@ if __name__ == '__main__':
 		lines = fp.readlines()
 	safe_folder_ids = [l.split('\t')[0] for l in lines]
 
-	# band2_paths     = [get_local_band_path(s,S2_DIR) for s in safe_folder_ids]
-	# N_products = len(safe_folder_ids)
-	# with ThreadPoolExecutor(max_workers=4) as pool:
-		# band2_paths = list(pool.map(partial(get_local_band_path,data_dir=S2_DIR),safe_folder_ids))
 
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50
@@ -495,15 +537,6 @@ if __name__ == '__main__':
 		########## DOWNLOAD/COPY ####################
 		for safe_id in chunk:
 
-			# GET SOME STRINGS
-			# for b in BANDS:
-				# band_path = b2_path.replace("_B02_",f"_{b}_")
-				# copy_band_queue.append(f"{S2_DIR}/{band_path}")
-			
-			# tile  = b2_path.split('/')[-1].split('_')[0]
-			# date  = b2_path.split('/')[-1].split('_')[1]
-			# orbit = b2_path.split('/')[7].split('_')[4]
-
 			tile = safe_id.split('_')[5]
 			date = safe_id.split('_')[2]
 			orbit = safe_id.split('_')[4]
@@ -513,7 +546,6 @@ if __name__ == '__main__':
 			copy_band_queue.append(copy_from)
 
 		print(f"Copying {len(chunk)} .jp2 band files in chunk...")
-		# copy_threaded(copy_band_queue,WORK_DIR)
 		copy_dir_threaded(copy_band_queue,WORK_DIR)
 
 		# COPY ONLY NECESSARY LABELS
