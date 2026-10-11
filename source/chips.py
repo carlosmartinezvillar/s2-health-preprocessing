@@ -524,7 +524,7 @@ if __name__ == '__main__':
 	print(f"Copying all {len(copy_mask_queue)} labels to WORK_DIR...")
 	s0 = time.perf_counter()
 	copy_threaded(copy_mask_queue,WORK_DIR)
-	printf(f"{time.perf_counter()-s0:.2f} secs.")
+	print(f"{time.perf_counter()-s0:.2f} secs.")
 
 	########## SPLIT AND QUEUE ################
 	chunk_size  = 50
