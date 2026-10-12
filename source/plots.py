@@ -7,6 +7,8 @@ import pandas as pd
 import geopandas as gpd
 from shapely import wkt
 import matplotlib.patches as mpatches
+from matplotlib.colors import LogNorm, Normalize
+from matplotlib.ticker import FuncFormatter
 import numpy as np
 import glob 
 
@@ -238,6 +240,116 @@ def plot_tracts():
 	ax.set_axis_off()
 	plt.tight_layout()
 	plt.savefig("../figures/tracts.png")
+
+
+def _plot_tracts_by(values_fn,cmap,log,cbar_label,title,out_path,pct=(2,98)):
+	'''
+	Plot US polygons and census tract polygons colored by a per-tract value.
+	values_fn takes the tracts GeoDataFrame and returns the Series to color by.
+	The color range is capped at the pct percentiles so outliers don't wash out
+	the map; tracts beyond the cap get the end colors (arrows on the colorbar).
+	'''
+	# ---------------------------------------------------------------------------
+	# 1. LOAD FILES
+	# ---------------------------------------------------------------------------
+	states      = gpd.read_file(US_SHP_PATH)
+	territories = ['PR','AS','VI','MP','GU','AK','HI']
+	contiguous  = states[~states['STUSPS'].isin(territories)]
+	all_tracts  = gpd.read_file(TRACTS_GEOM)
+	all_tracts['value'] = values_fn(all_tracts)
+
+	# ---------------------------------------------------------------------------
+	# 2. PROJECT TO COMMON CRS
+	# ---------------------------------------------------------------------------
+	contiguous    = contiguous.to_crs(PLOT_CRS)
+	all_tracts    = all_tracts.to_crs(PLOT_CRS)
+
+	# ---------------------------------------------------------------------------
+	# 3. PLOT LAYERS
+	# ---------------------------------------------------------------------------
+	fig, ax = plt.subplots(1,1,figsize=(24,20))
+
+	# cap color range at percentiles
+	values = all_tracts['value'].dropna()
+	vmin, vmax = np.percentile(values,pct)
+	norm = LogNorm(vmin,vmax) if log else Normalize(vmin,vmax)
+
+	contiguous.plot(ax=ax,color='white',alpha=1.0,edgecolor='black',linewidth=0.2)
+	# no tract edges: with ~18k tracts the outlines would hide the fill colors
+	all_tracts.plot(ax=ax,column='value',cmap=cmap,norm=norm,linewidth=0,
+	                missing_kwds={'color':'lightgrey'})
+
+	# reference colorbar: capped range, arrows mark tracts beyond the cap
+	sm   = plt.cm.ScalarMappable(norm=norm,cmap=cmap)
+	cbar = fig.colorbar(sm,ax=ax,shrink=0.5,extend='both',pad=0.01)
+	cbar.set_label(cbar_label,fontsize=16)
+	cbar.ax.tick_params(labelsize=12,which='both')
+	# plain numbers (log colorbars default to 6x10^3 style ticks)
+	fmt = lambda v: f"{v:,.0f}" if abs(v) >= 100 else f"{v:.3g}"
+	cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda v,_: fmt(v)))
+	# on log bars label only 2x and 5x minor ticks; labeling every one crowds near 10^n
+	lead = lambda v: round(v / 10**np.floor(np.log10(v))) if v > 0 else 0
+	cbar.ax.yaxis.set_minor_formatter(FuncFormatter(lambda v,_: fmt(v) if lead(v) in (2,5) else ''))
+	n_missing = all_tracts['value'].isna().sum()
+	cbar.ax.text(0.5,-0.06,
+	             f"color capped at p{pct[0]}-p{pct[1]}: {fmt(vmin)} - {fmt(vmax)}\n"
+	             f"full range: {fmt(values.min())} - {fmt(values.max())}\n"
+	             f"median: {fmt(values.median())}\n"
+	             f"no data (grey): {n_missing} tracts",
+	             transform=cbar.ax.transAxes,ha='center',va='top',fontsize=12)
+
+	# zoom in
+	xmin, ymin, xmax, ymax = contiguous.total_bounds
+	x_range = xmax - xmin
+	xmin = x_range*0.3 + xmin #last ~2/3 of contiguous US
+	ax.set_xlim(xmin,xmax)
+	ax.set_ylim(ymin,ymax)
+
+	# title, layout, etc
+	ax.set_title(title,fontsize=24)
+	ax.set_axis_off()
+	plt.tight_layout()
+	plt.savefig(out_path)
+
+
+def _aland_km2(tracts):
+	'''Tract land area in km^2 from ALAND (m^2). Zero-area tracts become NaN.'''
+	return (tracts['ALAND'] / 1e6).where(tracts['ALAND'] > 0)
+
+
+def plot_tracts_population():
+	'''
+	Plot census tracts colored by population.
+	'''
+	pop = lambda t: t['Population'].where(t['Population'] > 0)
+	_plot_tracts_by(pop,'Blues',False,'Population',
+	                "Census Tracts by Population","../figures/tracts_population.png")
+
+
+def plot_tracts_area():
+	'''
+	Plot census tracts colored by land area (log scale).
+	'''
+	_plot_tracts_by(_aland_km2,'Greens',True,'Land area (km$^2$)',
+	                "Census Tracts by Land Area","../figures/tracts_area.png")
+
+
+def plot_tracts_density():
+	'''
+	Plot census tracts colored by population density (log scale).
+	'''
+	density = lambda t: (t['Population'] / _aland_km2(t)).where(t['Population'] > 0)
+	_plot_tracts_by(density,'Purples',True,'Population density (people/km$^2$)',
+	                "Census Tracts by Population Density","../figures/tracts_density.png")
+
+
+def plot_tracts_diabetes():
+	'''
+	Plot census tracts colored by diabetes prevalence (Data_Value, %).
+	'''
+	diabetes = lambda t: t['Data_Value']
+	_plot_tracts_by(diabetes,'Reds',False,'Diabetes prevalence (%)',
+	                "Census Tracts by Diabetes Prevalence","../figures/tracts_diabetes.png")
 
 
 def plot_label(path):
