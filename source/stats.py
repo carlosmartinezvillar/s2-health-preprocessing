@@ -76,9 +76,9 @@ def calculate_band_mean_std(chip_dir,split_csv):
 	stddevs = np.sqrt(overall_sq_sum/overall_px_count - means ** 2)
 
 	print("MEANS: ")
-	print(f"[{','.join([str(b) for b in means])}]")
+	print(f"[{','.join([f"{b:.6}" for b in means])}]")
 	print("STD DEVS: ")
-	print(f"[{','.join([str(b) for b in stddevs])}]")
+	print(f"[{','.join([f"{b:.6}" for b in stddevs])}]")
 
 
 def calculate_px_per_tract(chip_dir,split_csv):
