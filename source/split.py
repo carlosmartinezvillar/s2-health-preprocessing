@@ -38,11 +38,15 @@ def parse_args():
 
 	assert args.chip_dir is not None, "split.py: Incorrect data dir argument."
 	assert os.path.isdir(args.chip_dir), "split.py: Incorrect data dir argument."
-	assert args.feat_dir is not None, "split.py: Incorrect data dir argument."
-	assert os.path.isdir(args.feat_dir), "split.py: Incorrect data dir argument."
+	assert args.feat_dir is not None, "split.py: Incorrect feature dir argument."
+	assert os.path.isdir(args.feat_dir), "split.py: Incorrect feature dir argument."
+	assert args.out_dir is not None, "split.py: Incorrect out dir argument."
+	assert os.path.isdir(args.out_dir), "split.py: Incorrect out dir argument."
+
 
 	args.chip_dir = args.chip_dir.rstrip('/')
 	args.feat_dir = args.feat_dir.rstrip('/')
+	args.out_dir = args.out_dir.rstrip('/')
 
 	return args
 
@@ -398,10 +402,6 @@ if __name__ == '__main__':
 
 	# SPLIT
 	boundary_aware_split(args)
-
-	#FIX SEEDS
-	# np.random.seed(DEFAULT_SEED)
-	# random.seed(DEFAULT_SEED)
 
 
 
