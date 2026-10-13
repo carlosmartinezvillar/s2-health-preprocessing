@@ -340,27 +340,33 @@ def boundary_aware_split(args):
 	feat_paths = [f"{args.feat_dir}/{c}_ftr.tif" for c in chip_ids]
 
 	# READ CHIP GEOMETRIES
+	print(f"Reading chip geometries...")
 	with ThreadPoolExecutor(N_PROC) as ex:
 		rows = list(ex.map(read_chip,feat_paths))
 	chips = pd.DataFrame(rows,columns=['chip','epsg','left','top','tracts'])
 	chips['tile'] = chips.chip.str.split('_').str[0]
 
 	# LOAD TRACTS
+	print(f"Loading tracts...")
 	all_tracts = gpd.read_file("../shapes/all_tracts/all_tracts.shp")
 
 	# TRAIN/VAL/SPLIT OF TILES
+	print(f"Loading tiles and assigning tiles to data split...")
 	tiles          = get_tiles(chips)
 	tiles['split'] = assign_tiles(tiles)
 
 	# SELECT CORRECT TRACTS IN CHIPS
+	print(f"Selecting subset of tracts...")
 	used   = sorted({t for ids in chips.tracts for t in ids})
 	tracts = all_tracts.loc[used,['GEOID','geometry']].to_crs(EQUAL_AREA)
 
 	# MAIN FUNCTION -- SPLIT TRACTS BY TILE AND SUBSEQUENT RULES
+	print(f"Assigning tracts to data split...")
 	tracts['home'],tracts['inside'] = assign_tracts(tracts,tiles)
 	tracts['split'] = tracts.home.map(tiles.split) # id -> tile -> split
 
 	# APPLY SPLIT TO CHIPS
+	print(f"Assigning chips to data split...")
 	tract_split    = tracts.split.to_dict()
 	chips['split'] = chips.tracts.map(lambda ids: chip_split(ids,tract_split))
 
